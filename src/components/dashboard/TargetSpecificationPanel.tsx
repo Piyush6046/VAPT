@@ -146,31 +146,31 @@ const TargetSpecificationPanel = ({
   };
 
   return (
-    <Card className="w-full max-w-md scanner-card shadow-2xl border-2 border-emerald-500/20 relative overflow-hidden">
-      <div className="absolute inset-0 bg-gradient-to-br from-emerald-500/5 to-cyan-500/5 pointer-events-none" />
-      <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-emerald-500 to-cyan-500" />
-      <CardHeader className="bg-gradient-to-r from-emerald-900/20 to-cyan-900/20 border-b border-slate-700/50 relative">
-        <div className="absolute inset-0 bg-gradient-to-r from-emerald-500/10 to-cyan-500/10 blur-xl" />
-        <CardTitle className="flex items-center text-xl font-bold text-slate-100 relative z-10">
-          <div className="relative">
-            <Shield className="mr-3 h-6 w-6 text-emerald-400 floating" />
-            <div className="absolute inset-0 h-6 w-6 bg-emerald-400/20 rounded-full pulse-ring" />
+    <Card className="w-full max-w-md scanner-card shadow-[0_0_40px_rgba(0,0,0,0.5)] border border-zinc-800 bg-[#090514]/90 backdrop-blur-xl relative overflow-hidden">
+      <div className="absolute inset-0 bg-gradient-to-br from-indigo-500/5 via-transparent to-transparent pointer-events-none" />
+      <div className="absolute top-0 left-0 w-full h-[2px] bg-gradient-to-r from-indigo-500 via-fuchsia-400 to-indigo-500" />
+      <CardHeader className="bg-[#130A24]/80 border-b border-zinc-800 relative pb-5">
+        <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_top,_var(--tw-gradient-stops))] from-indigo-900/10 via-transparent to-transparent pointer-events-none" />
+        <CardTitle className="flex items-center text-xl font-black tracking-wide text-zinc-100 relative z-10">
+          <div className="relative mr-3">
+            <Shield className="h-7 w-7 text-indigo-400 floating" />
+            <div className="absolute inset-0 h-7 w-7 bg-indigo-400/20 rounded-full animate-ping" style={{ animationDuration: '3s' }} />
           </div>
-          <span className="modern-text text-emerald-600 dark:text-emerald-400">
-            VAPT Mini Framework
+          <span className="bg-clip-text text-transparent bg-gradient-to-r from-indigo-400 to-fuchsia-400 drop-shadow-[0_0_8px_rgba(52,211,153,0.3)]">
+            Sentinel Core Server
           </span>
         </CardTitle>
         <div className="flex items-center gap-2 mt-3 relative z-10">
           <Badge
             variant="outline"
-            className="text-xs text-emerald-700 dark:text-emerald-400 border-emerald-500/50 bg-emerald-100/80 dark:bg-emerald-900/20 backdrop-blur-sm"
+            className="text-xs text-indigo-700 dark:text-indigo-400 border-indigo-500/50 bg-indigo-100/80 dark:bg-indigo-900/20 backdrop-blur-sm"
           >
             <Activity className="mr-1 h-3 w-3" />
             Automated
           </Badge>
           <Badge
             variant="outline"
-            className="text-xs text-cyan-700 dark:text-cyan-400 border-cyan-500/50 bg-cyan-100/80 dark:bg-cyan-900/20 backdrop-blur-sm"
+            className="text-xs text-fuchsia-700 dark:text-fuchsia-400 border-fuchsia-500/50 bg-fuchsia-100/80 dark:bg-fuchsia-900/20 backdrop-blur-sm"
           >
             <Database className="mr-1 h-3 w-3" />
             SQLite Backend
@@ -187,7 +187,7 @@ const TargetSpecificationPanel = ({
       <CardContent className="pt-6 relative">
         <div className="space-y-6">
           <div className="space-y-4">
-            <Label className="text-sm font-medium text-emerald-700 dark:text-emerald-300 flex items-center">
+            <Label className="text-sm font-medium text-indigo-700 dark:text-indigo-300 flex items-center">
               <Eye className="mr-2 h-4 w-4" />
               Target Classification
             </Label>
@@ -196,28 +196,28 @@ const TargetSpecificationPanel = ({
               onValueChange={handleTargetTypeChange}
               className="grid grid-cols-3 gap-3"
             >
-              <div className="flex items-center space-x-2 p-3 rounded-lg glass-effect hover:bg-emerald-500/10 transition-all duration-300">
+              <div className="flex items-center space-x-2 p-3 rounded-lg glass-effect hover:bg-indigo-500/10 transition-all duration-300">
                 <RadioGroupItem
                   value="domain"
                   id="domain"
-                  className="border-emerald-400"
+                  className="border-indigo-400"
                 />
                 <Label
                   htmlFor="domain"
-                  className="cursor-pointer flex items-center text-emerald-700 dark:text-emerald-300 font-medium"
+                  className="cursor-pointer flex items-center text-indigo-700 dark:text-indigo-300 font-medium"
                 >
                   <Globe className="mr-2 h-4 w-4" /> Domain
                 </Label>
               </div>
-              <div className="flex items-center space-x-2 p-3 rounded-lg glass-effect hover:bg-cyan-500/10 transition-all duration-300">
+              <div className="flex items-center space-x-2 p-3 rounded-lg glass-effect hover:bg-fuchsia-500/10 transition-all duration-300">
                 <RadioGroupItem
                   value="ipv4"
                   id="ipv4"
-                  className="border-cyan-400"
+                  className="border-fuchsia-400"
                 />
                 <Label
                   htmlFor="ipv4"
-                  className="cursor-pointer flex items-center text-cyan-700 dark:text-cyan-300 font-medium"
+                  className="cursor-pointer flex items-center text-fuchsia-700 dark:text-fuchsia-300 font-medium"
                 >
                   <Server className="mr-2 h-4 w-4" /> IPv4
                 </Label>
@@ -241,9 +241,9 @@ const TargetSpecificationPanel = ({
           <div className="space-y-3">
             <Label
               htmlFor="target-input"
-              className="text-sm font-medium text-slate-700 dark:text-slate-200 flex items-center"
+              className="text-sm font-medium text-zinc-700 dark:text-zinc-200 flex items-center"
             >
-              <Network className="mr-2 h-4 w-4 text-emerald-400" />
+              <Network className="mr-2 h-4 w-4 text-indigo-400" />
               Target{" "}
               {targetType === "domain"
                 ? "Domain"
@@ -257,18 +257,18 @@ const TargetSpecificationPanel = ({
                 placeholder={getTargetPlaceholder()}
                 value={targetValue}
                 onChange={(e) => setTargetValue(e.target.value)}
-                className="bg-white/90 dark:bg-slate-800/50 border-slate-300 dark:border-slate-600 text-slate-900 dark:text-slate-100 placeholder:text-slate-500 dark:placeholder:text-slate-400 focus:border-emerald-500 focus:ring-emerald-500/20 backdrop-blur-sm transition-all duration-300 pl-10"
+                className="bg-white/90 dark:bg-zinc-800/50 border-zinc-300 dark:border-zinc-600 text-zinc-900 dark:text-zinc-100 placeholder:text-zinc-500 dark:placeholder:text-zinc-400 focus:border-indigo-500 focus:ring-indigo-500/20 backdrop-blur-sm transition-all duration-300 pl-10"
               />
-              <div className="absolute left-3 top-1/2 transform -translate-y-1/2">
+              <div className="absolute left-3 top-1/2 transform -tranzinc-y-1/2">
                 {targetType === "domain" ? (
-                  <Globe className="h-4 w-4 text-emerald-400" />
+                  <Globe className="h-4 w-4 text-indigo-400" />
                 ) : (
-                  <Server className="h-4 w-4 text-cyan-400" />
+                  <Server className="h-4 w-4 text-fuchsia-400" />
                 )}
               </div>
               {targetValue && (
-                <div className="absolute right-3 top-1/2 transform -translate-y-1/2">
-                  <div className="w-2 h-2 bg-emerald-400 rounded-full animate-pulse" />
+                <div className="absolute right-3 top-1/2 transform -tranzinc-y-1/2">
+                  <div className="w-2 h-2 bg-indigo-400 rounded-full animate-pulse" />
                 </div>
               )}
             </div>
@@ -307,16 +307,16 @@ const TargetSpecificationPanel = ({
             </TabsList>
 
             <TabsContent value="rapid" className="space-y-4 pt-4">
-              <div className="bg-slate-800/50 p-4 rounded-lg border border-slate-700">
+              <div className="bg-zinc-800/50 p-4 rounded-lg border border-zinc-700">
                 <div className="flex items-center gap-2 mb-3">
                   <Zap className="h-4 w-4 text-yellow-400" />
-                  <span className="text-sm font-medium text-slate-200">
+                  <span className="text-sm font-medium text-zinc-200">
                     Quick Assessment Features
                   </span>
                 </div>
                 <div className="space-y-3">
                   <div className="space-y-2">
-                    <Label className="text-sm font-medium text-slate-300">
+                    <Label className="text-sm font-medium text-zinc-300">
                       Port Scan Range
                     </Label>
                     <Select
@@ -325,7 +325,7 @@ const TargetSpecificationPanel = ({
                         handleConfigOptionChange("rapid", "portScan", value)
                       }
                     >
-                      <SelectTrigger className="bg-slate-700 border-slate-600">
+                      <SelectTrigger className="bg-zinc-700 border-zinc-600">
                         <SelectValue />
                       </SelectTrigger>
                       <SelectContent>
@@ -336,27 +336,27 @@ const TargetSpecificationPanel = ({
                     </Select>
                   </div>
                   <div className="grid grid-cols-2 gap-2 text-xs">
-                    <div className="flex items-center gap-1 text-emerald-400">
+                    <div className="flex items-center gap-1 text-indigo-400">
                       <Network className="h-3 w-3" />
                       <span>Basic Port Scan</span>
                     </div>
-                    <div className="flex items-center gap-1 text-emerald-400">
+                    <div className="flex items-center gap-1 text-indigo-400">
                       <Globe className="h-3 w-3" />
                       <span>Web Scanning</span>
                     </div>
-                    <div className="flex items-center gap-1 text-emerald-400">
+                    <div className="flex items-center gap-1 text-indigo-400">
                       <Lock className="h-3 w-3" />
                       <span>SSL/TLS Check</span>
                     </div>
-                    <div className="flex items-center gap-1 text-emerald-400">
+                    <div className="flex items-center gap-1 text-indigo-400">
                       <Shield className="h-3 w-3" />
                       <span>Heuristic Analysis</span>
                     </div>
-                    <div className="flex items-center gap-1 text-slate-400">
+                    <div className="flex items-center gap-1 text-zinc-400">
                       <Shield className="h-3 w-3" />
                       <span>Basic WAF Detection</span>
                     </div>
-                    <div className="flex items-center gap-1 text-slate-400">
+                    <div className="flex items-center gap-1 text-zinc-400">
                       <Globe className="h-3 w-3" />
                       <span>Standard DNS Lookup</span>
                     </div>
@@ -366,16 +366,16 @@ const TargetSpecificationPanel = ({
             </TabsContent>
 
             <TabsContent value="comprehensive" className="space-y-4 pt-4">
-              <div className="bg-slate-800/50 p-4 rounded-lg border border-slate-700">
+              <div className="bg-zinc-800/50 p-4 rounded-lg border border-zinc-700">
                 <div className="flex items-center gap-2 mb-3">
                   <Eye className="h-4 w-4 text-blue-400" />
-                  <span className="text-sm font-medium text-slate-200">
+                  <span className="text-sm font-medium text-zinc-200">
                     Comprehensive Audit Features
                   </span>
                 </div>
                 <div className="space-y-3">
                   <div className="space-y-2">
-                    <Label className="text-sm font-medium text-slate-300">
+                    <Label className="text-sm font-medium text-zinc-300">
                       Port Scan Range
                     </Label>
                     <Select
@@ -388,7 +388,7 @@ const TargetSpecificationPanel = ({
                         )
                       }
                     >
-                      <SelectTrigger className="bg-slate-700 border-slate-600">
+                      <SelectTrigger className="bg-zinc-700 border-zinc-600">
                         <SelectValue />
                       </SelectTrigger>
                       <SelectContent>
@@ -399,51 +399,51 @@ const TargetSpecificationPanel = ({
                     </Select>
                   </div>
                   <div className="grid grid-cols-2 gap-2 text-xs">
-                    <div className="flex items-center gap-1 text-emerald-400">
+                    <div className="flex items-center gap-1 text-indigo-400">
                       <Network className="h-3 w-3" />
                       <span>Full Port Scan</span>
                     </div>
-                    <div className="flex items-center gap-1 text-emerald-400">
+                    <div className="flex items-center gap-1 text-indigo-400">
                       <Globe className="h-3 w-3" />
                       <span>DNS Reconnaissance</span>
                     </div>
-                    <div className="flex items-center gap-1 text-emerald-400">
+                    <div className="flex items-center gap-1 text-indigo-400">
                       <Server className="h-3 w-3" />
                       <span>Tech Fingerprinting</span>
                     </div>
-                    <div className="flex items-center gap-1 text-emerald-400">
+                    <div className="flex items-center gap-1 text-indigo-400">
                       <Database className="h-3 w-3" />
                       <span>Vulnerability Scan</span>
                     </div>
-                    <div className="flex items-center gap-1 text-emerald-400">
+                    <div className="flex items-center gap-1 text-indigo-400">
                       <Lock className="h-3 w-3" />
                       <span>Auth Testing</span>
                     </div>
-                    <div className="flex items-center gap-1 text-emerald-400">
+                    <div className="flex items-center gap-1 text-indigo-400">
                       <Activity className="h-3 w-3" />
                       <span>Web Crawling</span>
                     </div>
-                    <div className="flex items-center gap-1 text-emerald-400">
+                    <div className="flex items-center gap-1 text-indigo-400">
                       <Shield className="h-3 w-3" />
                       <span>Advanced Analysis</span>
                     </div>
-                    <div className="flex items-center gap-1 text-emerald-400">
+                    <div className="flex items-center gap-1 text-indigo-400">
                       <Activity className="h-3 w-3" />
                       <span>Threat Detection</span>
                     </div>
-                    <div className="flex items-center gap-1 text-emerald-400">
+                    <div className="flex items-center gap-1 text-indigo-400">
                       <Shield className="h-3 w-3" />
                       <span>Advanced WAF Detection</span>
                     </div>
-                    <div className="flex items-center gap-1 text-emerald-400">
+                    <div className="flex items-center gap-1 text-indigo-400">
                       <Globe className="h-3 w-3" />
                       <span>Advanced DNS Recon</span>
                     </div>
-                    <div className="flex items-center gap-1 text-emerald-400">
+                    <div className="flex items-center gap-1 text-indigo-400">
                       <Server className="h-3 w-3" />
                       <span>Advanced Banner Grab</span>
                     </div>
-                    <div className="flex items-center gap-1 text-emerald-400">
+                    <div className="flex items-center gap-1 text-indigo-400">
                       <Database className="h-3 w-3" />
                       <span>Cloud Hardening Check</span>
                     </div>
@@ -456,13 +456,13 @@ const TargetSpecificationPanel = ({
               <div className="bg-gradient-to-br from-red-900/20 to-purple-900/20 p-4 rounded-lg border border-red-800/30">
                 <div className="flex items-center gap-2 mb-3">
                   <Shield className="h-4 w-4 text-red-400" />
-                  <span className="text-sm font-medium text-slate-200">
+                  <span className="text-sm font-medium text-zinc-200">
                     Full Penetration Test Suite
                   </span>
                 </div>
                 <div className="space-y-3">
                   <div className="space-y-2">
-                    <Label className="text-sm font-medium text-slate-300">
+                    <Label className="text-sm font-medium text-zinc-300">
                       OWASP Scan Depth
                     </Label>
                     <Select
@@ -477,7 +477,7 @@ const TargetSpecificationPanel = ({
                         )
                       }
                     >
-                      <SelectTrigger className="bg-slate-700 border-slate-600">
+                      <SelectTrigger className="bg-zinc-700 border-zinc-600">
                         <SelectValue />
                       </SelectTrigger>
                       <SelectContent>
@@ -487,58 +487,58 @@ const TargetSpecificationPanel = ({
                     </Select>
                   </div>
                   <div className="grid grid-cols-2 gap-1 text-xs">
-                    <div className="flex items-center gap-1 text-emerald-400">
+                    <div className="flex items-center gap-1 text-indigo-400">
                       <span>✓ SQL Injection Testing</span>
                     </div>
-                    <div className="flex items-center gap-1 text-emerald-400">
+                    <div className="flex items-center gap-1 text-indigo-400">
                       <span>✓ XSS Testing</span>
                     </div>
-                    <div className="flex items-center gap-1 text-emerald-400">
+                    <div className="flex items-center gap-1 text-indigo-400">
                       <span>✓ Path Traversal</span>
                     </div>
-                    <div className="flex items-center gap-1 text-emerald-400">
+                    <div className="flex items-center gap-1 text-indigo-400">
                       <span>✓ Business Logic</span>
                     </div>
-                    <div className="flex items-center gap-1 text-emerald-400">
+                    <div className="flex items-center gap-1 text-indigo-400">
                       <span>✓ Real-time Updates</span>
                     </div>
-                    <div className="flex items-center gap-1 text-emerald-400">
+                    <div className="flex items-center gap-1 text-indigo-400">
                       <span>✓ REST API</span>
                     </div>
-                    <div className="flex items-center gap-1 text-emerald-400">
+                    <div className="flex items-center gap-1 text-indigo-400">
                       <span>✓ Enterprise Analysis</span>
                     </div>
-                    <div className="flex items-center gap-1 text-emerald-400">
+                    <div className="flex items-center gap-1 text-indigo-400">
                       <span>✓ Heuristic Engine</span>
                     </div>
-                    <div className="flex items-center gap-1 text-emerald-400">
+                    <div className="flex items-center gap-1 text-indigo-400">
                       <span>✓ Statistical Analysis</span>
                     </div>
-                    <div className="flex items-center gap-1 text-emerald-400">
+                    <div className="flex items-center gap-1 text-indigo-400">
                       <span>✓ Exploit Prediction</span>
                     </div>
-                    <div className="flex items-center gap-1 text-emerald-400">
+                    <div className="flex items-center gap-1 text-indigo-400">
                       <span>✓ WebSocket Support</span>
                     </div>
-                    <div className="flex items-center gap-1 text-emerald-400">
+                    <div className="flex items-center gap-1 text-indigo-400">
                       <span>✓ Risk Assessment</span>
                     </div>
-                    <div className="flex items-center gap-1 text-emerald-400">
+                    <div className="flex items-center gap-1 text-indigo-400">
                       <span>✓ Advanced WAF/Firewall Detection</span>
                     </div>
-                    <div className="flex items-center gap-1 text-emerald-400">
+                    <div className="flex items-center gap-1 text-indigo-400">
                       <span>✓ Full Port Scanning (65535)</span>
                     </div>
-                    <div className="flex items-center gap-1 text-emerald-400">
+                    <div className="flex items-center gap-1 text-indigo-400">
                       <span>✓ Advanced DNS Reconnaissance</span>
                     </div>
-                    <div className="flex items-center gap-1 text-emerald-400">
+                    <div className="flex items-center gap-1 text-indigo-400">
                       <span>✓ Advanced Banner Grabbing</span>
                     </div>
-                    <div className="flex items-center gap-1 text-emerald-400">
+                    <div className="flex items-center gap-1 text-indigo-400">
                       <span>✓ Cloud Hardening Assessment</span>
                     </div>
-                    <div className="flex items-center gap-1 text-emerald-400">
+                    <div className="flex items-center gap-1 text-indigo-400">
                       <span>✓ Infrastructure Security Analysis</span>
                     </div>
                   </div>
@@ -554,9 +554,9 @@ const TargetSpecificationPanel = ({
           </Tabs>
 
           <div className="space-y-3">
-            <div className="flex items-center justify-between text-xs text-slate-400">
+            <div className="flex items-center justify-between text-xs text-zinc-400">
               <span>Scan Features:</span>
-              <span className="text-emerald-400">
+              <span className="text-indigo-400">
                 {assessmentProfile === "rapid"
                   ? "6"
                   : assessmentProfile === "comprehensive"
@@ -582,26 +582,26 @@ const TargetSpecificationPanel = ({
               className="w-full relative overflow-hidden group"
               disabled={!targetValue.trim()}
             >
-              <div className="absolute inset-0 bg-gradient-to-r from-emerald-600 to-cyan-600 opacity-0 group-hover:opacity-100 transition-opacity duration-300" />
+              <div className="absolute inset-0 bg-gradient-to-r from-indigo-600 to-fuchsia-600 opacity-0 group-hover:opacity-100 transition-opacity duration-300" />
               <div className="relative z-10 flex items-center justify-center">
                 <Shield className="mr-3 h-6 w-6" />
                 <span className="font-bold text-lg">START VAPT SCAN</span>
                 <Zap className="ml-3 h-6 w-6" />
               </div>
               {!targetValue.trim() && (
-                <div className="absolute inset-0 bg-slate-700/50 backdrop-blur-sm" />
+                <div className="absolute inset-0 bg-zinc-700/50 backdrop-blur-sm" />
               )}
             </Button>
             <div className="grid grid-cols-3 gap-2 text-xs text-center">
-              <div className="text-slate-400">
+              <div className="text-zinc-400">
                 <Database className="h-3 w-3 mx-auto mb-1" />
                 <span>SQLite DB</span>
               </div>
-              <div className="text-slate-400">
+              <div className="text-zinc-400">
                 <Activity className="h-3 w-3 mx-auto mb-1" />
                 <span>Real-time</span>
               </div>
-              <div className="text-slate-400">
+              <div className="text-zinc-400">
                 <Network className="h-3 w-3 mx-auto mb-1" />
                 <span>REST API</span>
               </div>

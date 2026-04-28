@@ -1,23 +1,15 @@
-﻿import React, { useState, useRef } from "react";
+import React, { useState, useRef, useEffect } from "react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import TargetSpecificationPanel from "./dashboard/TargetSpecificationPanel";
 import VulnerabilityDashboard from "./dashboard/VulnerabilityDashboard";
 import { Button } from "./ui/button";
 import {
-  Shield,
-  AlertTriangle,
-  Activity,
-  RefreshCw,
-  Zap,
-  Database,
-  CheckCircle,
-  Eye,
-  Wifi,
-  WifiOff,
+  Shield, AlertTriangle, Activity, RefreshCw, Zap, Database,
+  CheckCircle, Eye, Wifi, WifiOff, Terminal, Globe, Server,
 } from "lucide-react";
-import { runAudit, classifyTarget } from "@/lib/auditEngine";
-import type { AuditFinding, LiveAuditResult, SecurityHeaderAudit } from "@/lib/auditEngine";
+import { runAudit } from "@/lib/auditEngine";
+import type { AuditFinding, LiveAuditResult, SecurityHeaderAudit, DNSResult, PortResult } from "@/lib/auditEngine";
 
 const Home = () => {
   const [scanInProgress, setScanInProgress] = useState(false);
@@ -27,170 +19,114 @@ const Home = () => {
   const [selectedTab, setSelectedTab] = useState("dashboard");
   const [scanError, setScanError] = useState<string | null>(null);
   const [hasPerformedScan, setHasPerformedScan] = useState(false);
-  const [liveAuditData, setLiveAuditData] = useState<{
-    headerAudit: SecurityHeaderAudit | null;
-    liveResult: LiveAuditResult | null;
-    tier: "hardened" | "demo" | "standard";
-    riskScore: number;
-  } | null>(null);
+  const [terminalLogs, setTerminalLogs] = useState<string[]>([]);
+  const [showTerminal, setShowTerminal] = useState(false);
+  const terminalRef = useRef<HTMLDivElement>(null);
   const abortRef = useRef<AbortController | null>(null);
 
-  // â”€â”€ Real Live Audit Scan Handler â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  useEffect(() => {
+    if (terminalRef.current) terminalRef.current.scrollTop = terminalRef.current.scrollHeight;
+  }, [terminalLogs]);
+
+  // ── Real Live Audit Scan Handler ────────────────────────────────────────
   const handleInitiateScan = async (targetData: {
     targetType: string;
     targetValue: string;
     assessmentProfile: string;
     configOptions: Record<string, any>;
   }) => {
-    if (!targetData.targetValue.trim()) {
-      setScanError("Target specification required");
-      return;
-    }
+    if (!targetData.targetValue.trim()) { setScanError("Target specification required"); return; }
 
-    // Basic format validation
-    const hostname = targetData.targetValue
-      .replace(/^https?:\/\//, "")
-      .split("/")[0]
-      .split(":")[0]
-      .trim();
+    const hostname = targetData.targetValue.replace(/^https?:\/\//,"").split("/")[0].split(":")[0].trim();
+    if (!hostname) { setScanError("Could not parse hostname."); return; }
 
-    if (!hostname) {
-      setScanError("Could not parse a valid hostname from the target value.");
-      return;
-    }
-
-    // Reset state
-    setScanInProgress(true);
-    setScanProgress(0);
-    setScanPhase("Initialising...");
-    setScanError(null);
-    setScanResults(null);
-    setLiveAuditData(null);
-    setHasPerformedScan(true);
+    setScanInProgress(true); setScanProgress(0); setScanPhase("Initialising..."); setScanError(null);
+    setScanResults(null); setHasPerformedScan(true); setShowTerminal(true);
+    setTerminalLogs(["+=================================================+", `  Sentinel Threat Engine™ -- ${new Date().toLocaleTimeString()}`, "+=================================================+", `[*] Target: ${hostname}`, `[*] Profile: ${targetData.assessmentProfile}`, "=".repeat(52)]);
 
     try {
-      const { findings, headerAudit, liveResult, tier, riskScore } = await runAudit(
+      const { findings, liveResult, dnsResult, portResults, tier, riskScore } = await runAudit(
         hostname,
-        targetData.assessmentProfile as "rapid" | "comprehensive" | "fullPenTest",
-        (pct, phase) => {
-          setScanProgress(pct);
-          setScanPhase(phase);
-        },
+        targetData.assessmentProfile as "rapid"|"comprehensive"|"fullPenTest",
+        (pct, phase) => { setScanProgress(pct); setScanPhase(phase); },
+        (msg) => setTerminalLogs(prev => [...prev, msg]),
       );
 
-      // Build recon data from live result
-      const recon = buildReconFromLiveResult(hostname, liveResult, tier);
-
-      // Build OWASP compliance from findings
+      const tierLabel = { hardened:"Hardened Enterprise", demo:"Intentionally Vulnerable (Lab)", standard:"Standard" }[tier];
+      const recon = buildReconFromResults(hostname, liveResult, dnsResult, portResults, tier);
       const owaspCompliance = buildOwaspCompliance(findings);
 
-      const tierLabel = { hardened: "Hardened", demo: "Intentionally Vulnerable (Demo)", standard: "Standard" }[tier];
-
       setScanResults({
-        vulnerabilities: findings,
-        reconnaissance: recon,
-        owaspCompliance,
+        vulnerabilities: findings, reconnaissance: recon, owaspCompliance,
+        threatIntelligence: { threatLevel: riskScore > 7 ? "Critical" : riskScore > 5 ? "High" : riskScore > 3 ? "Medium" : "Low", recommendations: findings.slice(0,3).map((f: any) => f.remediation) },
         scanMetadata: {
-          targetType: targetData.targetType,
-          targetValue: hostname,
-          profile: targetData.assessmentProfile,
-          tier,
-          riskLevel: tier,
-          analysisNotes: liveResult.reachable
-            ? `Live audit completed â€” ${findings.length} finding(s). Target classified as: ${tierLabel}.`
-            : `Target unreachable (${liveResult.error || "no response"}). Results based on classification only.`,
-          scanDuration: targetData.assessmentProfile === "rapid" ? "~15s" : "~30s",
-          timestamp: new Date().toISOString(),
-          confidence: liveResult.reachable ? 92 : 60,
-          methodology: "OWASP Testing Guide v4.2 â€” Live Passive Header Audit",
-          liveChecks: liveResult.reachable,
-          riskScore,
+          targetType: targetData.targetType, targetValue: hostname, profile: targetData.assessmentProfile, tier, riskLevel: tier,
+          analysisNotes: liveResult.reachable ? `Live audit complete -- ${findings.length} finding(s). Classification: ${tierLabel}.` : `Target unreachable (${liveResult.error||"no response"}). Classification-based results.`,
+          scanDuration: targetData.assessmentProfile==="rapid"?"~20s":targetData.assessmentProfile==="comprehensive"?"~40s":"~60s",
+          timestamp: new Date().toISOString(), confidence: liveResult.reachable ? 92 : 60,
+          methodology: "OWASP Testing Guide v4.2 + Live TCP/DNS/HTTP Audit", liveChecks: liveResult.reachable, riskScore,
         },
       });
-
-      setLiveAuditData({ headerAudit, liveResult, tier, riskScore });
-
     } catch (err: any) {
-      setScanError(err?.message || "Audit failed â€” please try again.");
-    } finally {
-      setScanInProgress(false);
-      setScanProgress(100);
-    }
+      setScanError(err?.message || "Audit failed.");
+      setTerminalLogs(prev => [...prev, `[ERROR] ${err?.message||"Unknown error"}`]);
+    } finally { setScanInProgress(false); setScanProgress(100); }
   };
 
-  // â”€â”€ Helper: build reconnaissance object from live result â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
-  const buildReconFromLiveResult = (
-    hostname: string,
-    live: LiveAuditResult,
-    tier: "hardened" | "demo" | "standard",
-  ) => {
-    const isHardened = tier === "hardened";
-    const isDemo = tier === "demo";
+  const buildReconFromResults = (hostname: string, live: LiveAuditResult, dns: DNSResult, ports: PortResult[], tier: "hardened"|"demo"|"standard") => {
+    const isHardened = tier === "hardened"; const isDemo = tier === "demo";
     const baseDomain = hostname.replace(/^www\./, "");
-
-    const ports = isHardened ? [80, 443] : isDemo ? [22, 80, 443, 8080] : [80, 443];
-    const services = ports.map(p => {
-      const svcMap: Record<number, string> = {
-        22: isHardened ? "SSH (Banner hidden)" : "OpenSSH 8.9",
-        80: "HTTP",
-        443: isHardened ? "HTTPS / CDN (Cloudflare/GWS)" : (live.server ? `HTTPS (${live.server})` : "HTTPS"),
-        8080: "HTTP-Alt (Tomcat)",
-      };
-      return svcMap[p] || "Unknown";
-    });
-
-    const subdomains = isHardened
-      ? ["mail", "accounts", "docs", "support", "maps"]
-      : isDemo
-      ? ["www", "admin", "test", "api", "dev"]
-      : ["www", "mail", "api"];
-
-    const dnsRecords = [
-      { type: "A",  name: baseDomain, value: isHardened ? "Resolved (CDN protected)" : `104.${Math.floor(Math.random()*200)+20}.${Math.floor(Math.random()*200)+10}.${Math.floor(Math.random()*200)+1}`, ttl: 300 },
-      { type: "MX", name: baseDomain, value: isHardened ? `aspmx.l.google.com` : `mail.${baseDomain}`, ttl: 3600 },
-      { type: "NS", name: baseDomain, value: isHardened ? "ns1.google.com" : `ns1.${baseDomain}`, ttl: 86400 },
-      { type: "TXT", name: baseDomain, value: isHardened ? "v=spf1 include:_spf.google.com ~all" : "v=spf1 a mx ~all", ttl: 3600 },
-    ];
-
-    return {
-      isHardened,
-      isDemo,
-      openPorts: ports,
-      services,
-      subdomains,
-      dnsRecords,
-      discoveredAssets: ports.length + subdomains.length,
-      server: live.server || (isHardened ? "CDN Protected" : "Unknown"),
-      poweredBy: live.poweredBy || null,
-      liveReachable: live.reachable,
-      statusCode: live.statusCode,
-      technologies: live.server ? [live.server] : (isHardened ? ["CDN", "TLS 1.3"] : ["nginx", "PHP"]),
-    };
+    const openPorts = ports.filter(p => p.open).map(p => p.port);
+    const services = ports.filter(p => p.open).map(p => `${p.port}/${p.service}`);
+    const subdomains = isHardened ? ["mail","accounts","docs","support","maps","api"] : isDemo ? ["www","admin","test","api","dev","backup"] : ["www","mail","api"];
+    const dnsRecords: {type:string;name:string;value:string;ttl:number}[] = [];
+    if (dns.A?.length) dns.A.forEach((a: string) => dnsRecords.push({type:"A", name:baseDomain, value:a, ttl:300}));
+    if (dns.MX?.length) dns.MX.forEach((m: string) => dnsRecords.push({type:"MX", name:baseDomain, value:m, ttl:3600}));
+    if (dns.NS?.length) dns.NS.forEach((n: string) => dnsRecords.push({type:"NS", name:baseDomain, value:n, ttl:86400}));
+    if (dns.TXT?.length) dns.TXT.forEach((t: string) => dnsRecords.push({type:"TXT", name:baseDomain, value:t.substring(0,80), ttl:3600}));
+    if (!dnsRecords.length) dnsRecords.push({type:"A", name:baseDomain, value:isHardened?"CDN Protected":"Unresolved", ttl:0});
+    return { isHardened, isDemo, openPorts, services, subdomains, dnsRecords, discoveredAssets: openPorts.length + subdomains.length, server: live.server || (isHardened?"CDN Protected":"Unknown"), poweredBy: live.poweredBy || null, liveReachable: live.reachable, statusCode: live.statusCode, technologies: live.server ? [live.server] : (isHardened?["CDN","TLS 1.3"]:["nginx","PHP"]), rawPortResults: ports };
   };
 
-  // â”€â”€ Helper: derive OWASP compliance from actual findings â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   const buildOwaspCompliance = (findings: AuditFinding[]) => {
-    const categories = [
-      "A01:2021-Broken Access Control",
-      "A02:2021-Cryptographic Failures",
-      "A03:2021-Injection",
-      "A04:2021-Insecure Design",
-      "A05:2021-Security Misconfiguration",
-      "A06:2021-Vulnerable Components",
-      "A07:2021-Identification and Authentication Failures",
-    ];
-    return categories.map(cat => {
-      const catFindings = findings.filter(f => f.owaspCategory === cat);
-      const status = catFindings.length === 0 ? "pass" :
-        catFindings.some(f => f.severity === "critical" || f.severity === "high") ? "fail" : "partial";
+    const cats = ["A01:2021-Broken Access Control","A02:2021-Cryptographic Failures","A03:2021-Injection","A04:2021-Insecure Design","A05:2021-Security Misconfiguration","A06:2021-Vulnerable Components","A07:2021-Identification and Authentication Failures","A08:2021-Software and Data Integrity Failures","A09:2021-Security Logging and Monitoring Failures","A10:2021-Server-Side Request Forgery"];
+    
+    let compliantCount = 0;
+    let nonCompliantCount = 0;
+    let totalRisk = 0;
+
+    const complianceFindings = cats.map(cat => {
+      const cf = findings.filter(f => f.owaspCategory === cat);
+      const isFail = cf.some(f => f.severity === "critical" || f.severity === "high");
+      const isPartial = cf.length > 0 && !isFail;
+      const status = isFail ? "fail" : isPartial ? "partial" : "pass";
+      
+      if (status === "pass") compliantCount++;
+      else nonCompliantCount++;
+
+      const score = isFail ? 10 : isPartial ? 5 : 0;
+      totalRisk += score;
+
       return {
         category: cat,
         status,
-        findings: catFindings.length,
-        details: catFindings.map(f => f.title),
+        findings: cf.length,
+        details: cf.map(f => f.title),
+        criticality: isFail ? "High" : isPartial ? "Medium" : "Low",
+        score
       };
     });
+
+    return {
+      compliancePercentage: Math.round((compliantCount / cats.length) * 100),
+      compliant: compliantCount,
+      nonCompliant: nonCompliantCount,
+      riskScore: Math.min(10, Math.round(totalRisk / cats.length)),
+      maxRiskScore: 10,
+      findings: complianceFindings
+    };
   };
+
 
 
   const handleRetest = () => {
@@ -198,1079 +134,157 @@ const Home = () => {
     // You could implement retest logic here
   };
 
-  const handleGenerateReport = async () => {
-    console.log("Professional security report generation initiated");
-
+  const handleGenerateReport = () => {
     if (!scanResults) {
-      console.log("No scan results available for report generation");
+      alert("No scan results available. Please run a scan first.");
       return;
     }
 
-    try {
-      // Generate comprehensive professional report
-      const reportData = {
-        executiveSummary: {
-          targetInfo: {
-            target: scanResults.scanMetadata?.targetValue,
-            scanType: scanResults.scanMetadata?.profile,
-            scanDate: new Date(
-              scanResults.scanMetadata?.timestamp || Date.now(),
-            ).toLocaleDateString(),
-            confidence: scanResults.scanMetadata?.confidence,
-          },
-          riskAssessment: {
-            totalVulnerabilities: scanResults.vulnerabilities?.length || 0,
-            criticalCount:
-              scanResults.vulnerabilities?.filter(
-                (v) => v.severity === "critical",
-              ).length || 0,
-            highCount:
-              scanResults.vulnerabilities?.filter((v) => v.severity === "high")
-                .length || 0,
-            overallRisk:
-              scanResults.threatIntelligence?.threatLevel || "Unknown",
-          },
-        },
-        technicalFindings: scanResults.vulnerabilities || [],
-        owaspCompliance: scanResults.owaspCompliance || {},
-        reconnaissance: scanResults.reconnaissance || {},
-        threatIntelligence: scanResults.threatIntelligence || {},
-        methodology:
-          scanResults.scanMetadata?.methodology ||
-          "Professional Penetration Testing",
-        recommendations: scanResults.threatIntelligence?.recommendations || [],
-      };
+    const vulns = scanResults.vulnerabilities || [];
+    const meta  = scanResults.scanMetadata || {};
+    const recon = scanResults.reconnaissance || {};
 
-      // Generate PDF content
-      const pdfContent = generatePDFContent(reportData);
+    const criticalCount = vulns.filter((v: any) => v.severity === "critical").length;
+    const highCount     = vulns.filter((v: any) => v.severity === "high").length;
+    const mediumCount   = vulns.filter((v: any) => v.severity === "medium").length;
+    const lowCount      = vulns.filter((v: any) => v.severity === "low").length;
+    const riskScore     = meta.riskScore ?? 0;
 
-      // Create and download PDF
-      await downloadPDFReport(
-        pdfContent,
-        reportData.executiveSummary.targetInfo.target,
-      );
+    const severityColor = (s: string) => ({
+      critical: "#dc2626", high: "#ea580c", medium: "#ca8a04", low: "#2563eb", info: "#6b7280",
+    }[s] ?? "#6b7280");
 
-      console.log("Professional Security Assessment Report:", reportData);
-    } catch (error) {
-      console.error("Error generating PDF report:", error);
-      alert("Error generating PDF report. Please try again.");
-    }
-  };
+    const vulnRows = vulns.map((v: any, i: number) => `
+      <div class="vuln-card">
+        <div class="vuln-header" style="background:${severityColor(v.severity)}">
+          <span class="vuln-num">${i + 1}</span>
+          <span class="vuln-title">${v.title}</span>
+          <span class="badge">${v.severity.toUpperCase()}</span>
+        </div>
+        <div class="vuln-body">
+          <div class="meta-row"><span class="label">OWASP Category</span><span>${v.owaspCategory || v.category || "—"}</span></div>
+          <div class="meta-row"><span class="label">CVSS Score</span><span>${v.cvss ?? "N/A"}</span></div>
+          <div class="meta-row"><span class="label">Confidence</span><span>${v.confidence ?? "—"}</span></div>
+          <div class="meta-row"><span class="label">Affected</span><span>${(v.affectedComponents || []).join(", ")}</span></div>
+          <p class="section-label">Evidence / Technical Detail</p>
+          <p class="evidence">${v.evidence || v.technicalDetails || "—"}</p>
+          <p class="section-label">Description</p>
+          <p>${v.description}</p>
+          <p class="section-label">Impact</p>
+          <p>${v.impact}</p>
+          <p class="section-label">Remediation</p>
+          <p class="remediation">${v.remediation}</p>
+          ${v.references?.length ? `<p class="section-label">References</p><ul>${v.references.map((r: any) => `<li><a href="${r.url}">${r.title}</a></li>`).join("")}</ul>` : ""}
+        </div>
+      </div>`).join("");
 
-  const generatePDFContent = (reportData: any) => {
-    const currentDate = new Date().toLocaleDateString("en-US", {
-      year: "numeric",
-      month: "long",
-      day: "numeric",
-    });
-    const currentTime = new Date().toLocaleTimeString("en-US", {
-      hour: "2-digit",
-      minute: "2-digit",
-      second: "2-digit",
-    });
+    const owaspRows = (scanResults.owaspCompliance || []).map((c: any) => `
+      <tr>
+        <td>${c.category}</td>
+        <td style="color:${c.status === "pass" ? "#16a34a" : c.status === "fail" ? "#dc2626" : "#ca8a04"};font-weight:600">
+          ${c.status.toUpperCase()}
+        </td>
+        <td>${c.findings}</td>
+        <td>${(c.details || []).join(", ") || "—"}</td>
+      </tr>`).join("");
 
-    // Calculate additional metrics
-    const totalVulns = reportData.technicalFindings.length;
-    const criticalCount = reportData.technicalFindings.filter(
-      (v: any) => v.severity === "critical",
-    ).length;
-    const highCount = reportData.technicalFindings.filter(
-      (v: any) => v.severity === "high",
-    ).length;
-    const mediumCount = reportData.technicalFindings.filter(
-      (v: any) => v.severity === "medium",
-    ).length;
-    const lowCount = reportData.technicalFindings.filter(
-      (v: any) => v.severity === "low",
-    ).length;
-
-    const riskScore = Math.round(
-      (criticalCount * 10 + highCount * 7 + mediumCount * 4 + lowCount * 2) /
-        Math.max(1, totalVulns),
-    );
-
-    return `
-<!DOCTYPE html>
+    const html = `<!DOCTYPE html>
 <html lang="en">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>VAPT Mini Framework - Security Assessment Report</title>
-    <style>
-        * {
-            margin: 0;
-            padding: 0;
-            box-sizing: border-box;
-        }
-        
-        body {
-            font-family: 'Segoe UI', -apple-system, BlinkMacSystemFont, 'Roboto', sans-serif;
-            line-height: 1.6;
-            color: #2c3e50;
-            background: #ffffff;
-            font-size: 14px;
-        }
-        
-        .container {
-            max-width: 210mm;
-            margin: 0 auto;
-            padding: 20mm;
-            background: white;
-        }
-        
-        .header {
-            text-align: center;
-            border-bottom: 3px solid #e74c3c;
-            padding-bottom: 30px;
-            margin-bottom: 40px;
-        }
-        
-        .logo {
-            font-size: 36px;
-            font-weight: 900;
-            color: #e74c3c;
-            margin-bottom: 10px;
-            letter-spacing: -1px;
-        }
-        
-        .subtitle {
-            font-size: 18px;
-            color: #7f8c8d;
-            font-weight: 300;
-            margin-bottom: 20px;
-        }
-        
-        .report-info {
-            background: #ecf0f1;
-            padding: 20px;
-            border-radius: 8px;
-            margin: 20px 0;
-        }
-        
-        .report-info-grid {
-            display: grid;
-            grid-template-columns: 1fr 1fr;
-            gap: 15px;
-        }
-        
-        .info-item {
-            display: flex;
-            justify-content: space-between;
-            padding: 8px 0;
-            border-bottom: 1px solid #bdc3c7;
-        }
-        
-        .info-label {
-            font-weight: 600;
-            color: #34495e;
-        }
-        
-        .info-value {
-            color: #2c3e50;
-            font-weight: 500;
-        }
-        
-        h1 {
-            font-size: 28px;
-            color: #2c3e50;
-            margin: 30px 0 20px 0;
-            border-bottom: 2px solid #3498db;
-            padding-bottom: 10px;
-        }
-        
-        h2 {
-            font-size: 22px;
-            color: #34495e;
-            margin: 25px 0 15px 0;
-            border-left: 4px solid #3498db;
-            padding-left: 15px;
-        }
-        
-        h3 {
-            font-size: 18px;
-            color: #2c3e50;
-            margin: 20px 0 10px 0;
-            font-weight: 600;
-        }
-        
-        .executive-summary {
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-            color: white;
-            padding: 30px;
-            border-radius: 12px;
-            margin: 30px 0;
-        }
-        
-        .executive-summary h1 {
-            color: white;
-            border-bottom: 2px solid rgba(255,255,255,0.3);
-            margin-bottom: 20px;
-        }
-        
-        .risk-metrics {
-            display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-            gap: 20px;
-            margin: 20px 0;
-        }
-        
-        .risk-card {
-            background: rgba(255,255,255,0.1);
-            padding: 20px;
-            border-radius: 8px;
-            text-align: center;
-            backdrop-filter: blur(10px);
-        }
-        
-        .risk-number {
-            font-size: 36px;
-            font-weight: 900;
-            margin-bottom: 5px;
-        }
-        
-        .risk-label {
-            font-size: 14px;
-            opacity: 0.9;
-        }
-        
-        .vulnerability-section {
-            margin: 30px 0;
-        }
-        
-        .vuln-card {
-            border: 1px solid #e0e0e0;
-            border-radius: 8px;
-            margin: 20px 0;
-            overflow: hidden;
-            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
-        }
-        
-        .vuln-header {
-            padding: 20px;
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-        }
-        
-        .vuln-header.critical {
-            background: linear-gradient(135deg, #ff6b6b, #ee5a52);
-            color: white;
-        }
-        
-        .vuln-header.high {
-            background: linear-gradient(135deg, #ffa726, #ff9800);
-            color: white;
-        }
-        
-        .vuln-header.medium {
-            background: linear-gradient(135deg, #ffeb3b, #ffc107);
-            color: #333;
-        }
-        
-        .vuln-header.low {
-            background: linear-gradient(135deg, #42a5f5, #2196f3);
-            color: white;
-        }
-        
-        .vuln-title {
-            font-size: 18px;
-            font-weight: 600;
-            margin: 0;
-        }
-        
-        .severity-badge {
-            padding: 8px 16px;
-            border-radius: 20px;
-            font-weight: 600;
-            font-size: 12px;
-            text-transform: uppercase;
-            letter-spacing: 1px;
-        }
-        
-        .severity-critical {
-            background: rgba(255,255,255,0.2);
-            color: white;
-        }
-        
-        .severity-high {
-            background: rgba(255,255,255,0.2);
-            color: white;
-        }
-        
-        .severity-medium {
-            background: rgba(0,0,0,0.1);
-            color: #333;
-        }
-        
-        .severity-low {
-            background: rgba(255,255,255,0.2);
-            color: white;
-        }
-        
-        .vuln-content {
-            padding: 25px;
-        }
-        
-        .vuln-meta {
-            display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-            gap: 15px;
-            margin-bottom: 20px;
-            background: #f8f9fa;
-            padding: 15px;
-            border-radius: 6px;
-        }
-        
-        .meta-item {
-            display: flex;
-            flex-direction: column;
-        }
-        
-        .meta-label {
-            font-size: 12px;
-            color: #6c757d;
-            font-weight: 600;
-            text-transform: uppercase;
-            margin-bottom: 5px;
-        }
-        
-        .meta-value {
-            font-weight: 500;
-            color: #495057;
-        }
-        
-        .vuln-description {
-            margin: 15px 0;
-            padding: 15px;
-            background: #f8f9fa;
-            border-left: 4px solid #007bff;
-            border-radius: 0 6px 6px 0;
-        }
-        
-        .solution-box {
-            background: linear-gradient(135deg, #28a745, #20c997);
-            color: white;
-            padding: 20px;
-            border-radius: 8px;
-            margin: 15px 0;
-        }
-        
-        .solution-title {
-            font-weight: 600;
-            margin-bottom: 10px;
-            font-size: 16px;
-        }
-        
-        .code-block {
-            background: #2d3748;
-            color: #e2e8f0;
-            padding: 15px;
-            border-radius: 6px;
-            font-family: 'Consolas', 'Monaco', monospace;
-            font-size: 12px;
-            overflow-x: auto;
-            margin: 10px 0;
-        }
-        
-        .compliance-grid {
-            display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
-            gap: 20px;
-            margin: 20px 0;
-        }
-        
-        .compliance-card {
-            border: 1px solid #e0e0e0;
-            border-radius: 8px;
-            padding: 20px;
-            background: white;
-        }
-        
-        .compliance-status {
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            padding: 10px 0;
-            border-bottom: 1px solid #eee;
-        }
-        
-        .status-compliant {
-            color: #28a745;
-            font-weight: 600;
-        }
-        
-        .status-non-compliant {
-            color: #dc3545;
-            font-weight: 600;
-        }
-        
-        .recommendations {
-            background: #e3f2fd;
-            border: 1px solid #2196f3;
-            border-radius: 8px;
-            padding: 25px;
-            margin: 30px 0;
-        }
-        
-        .recommendations h2 {
-            color: #1976d2;
-            margin-top: 0;
-        }
-        
-        .recommendation-item {
-            background: white;
-            padding: 15px;
-            margin: 10px 0;
-            border-radius: 6px;
-            border-left: 4px solid #2196f3;
-        }
-        
-        .footer {
-            margin-top: 50px;
-            padding-top: 30px;
-            border-top: 2px solid #e74c3c;
-            text-align: center;
-            color: #7f8c8d;
-        }
-        
-        .page-break {
-            page-break-before: always;
-        }
-        
-        @media print {
-            .container {
-                padding: 15mm;
-            }
-            
-            .page-break {
-                page-break-before: always;
-            }
-        }
-    </style>
+<meta charset="UTF-8">
+<title>VAPT Report — ${meta.targetValue}</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: "Segoe UI", Arial, sans-serif; font-size: 13px; color: #1e293b; background: #fff; }
+  .page { max-width: 900px; margin: 0 auto; padding: 40px 48px; }
+  .header { border-bottom: 3px solid #090514; padding-bottom: 20px; margin-bottom: 32px; }
+  .header h1 { font-size: 26px; color: #090514; letter-spacing: -0.5px; }
+  .header .sub { color: #64748b; font-size: 13px; margin-top: 4px; }
+  .meta-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 16px; margin-bottom: 32px; }
+  .meta-card { background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 16px; text-align: center; }
+  .meta-card .num { font-size: 28px; font-weight: 800; color: #090514; }
+  .meta-card .lbl { font-size: 11px; color: #64748b; text-transform: uppercase; margin-top: 4px; }
+  h2 { font-size: 16px; font-weight: 700; margin: 32px 0 12px; border-left: 4px solid #3b82f6; padding-left: 10px; color: #1e293b; }
+  .info-table { width: 100%; border-collapse: collapse; margin-bottom: 24px; }
+  .info-table td { padding: 7px 12px; border: 1px solid #e2e8f0; font-size: 13px; }
+  .info-table td:first-child { font-weight: 600; background: #f8fafc; width: 200px; }
+  .vuln-card { border: 1px solid #e2e8f0; border-radius: 8px; margin-bottom: 20px; overflow: hidden; page-break-inside: avoid; }
+  .vuln-header { display: flex; align-items: center; gap: 10px; padding: 12px 16px; color: white; }
+  .vuln-num { background: rgba(255,255,255,0.25); border-radius: 50%; width: 24px; height: 24px; display: flex; align-items: center; justify-content: center; font-size: 12px; font-weight: 700; flex-shrink: 0; }
+  .vuln-title { flex: 1; font-weight: 600; font-size: 14px; }
+  .badge { background: rgba(255,255,255,0.2); border-radius: 12px; padding: 2px 10px; font-size: 11px; font-weight: 700; letter-spacing: 0.5px; }
+  .vuln-body { padding: 16px; }
+  .meta-row { display: flex; gap: 12px; font-size: 12px; margin-bottom: 6px; }
+  .label { font-weight: 600; color: #64748b; min-width: 140px; }
+  .section-label { font-weight: 700; color: #374151; margin: 10px 0 4px; font-size: 12px; text-transform: uppercase; letter-spacing: 0.5px; }
+  .evidence { background: #f1f5f9; border-left: 3px solid #3b82f6; padding: 8px 12px; border-radius: 0 4px 4px 0; font-family: monospace; font-size: 12px; margin-bottom: 6px; }
+  .remediation { background: #f0fdf4; border-left: 3px solid #16a34a; padding: 8px 12px; border-radius: 0 4px 4px 0; }
+  ul { padding-left: 20px; margin-top: 4px; }
+  li { margin: 2px 0; } a { color: #2563eb; }
+  .owasp-table { width: 100%; border-collapse: collapse; font-size: 12px; }
+  .owasp-table th { background: #090514; color: white; padding: 8px 12px; text-align: left; }
+  .owasp-table td { padding: 7px 12px; border: 1px solid #e2e8f0; }
+  .owasp-table tr:nth-child(even) td { background: #f8fafc; }
+  .footer { margin-top: 40px; padding-top: 16px; border-top: 1px solid #e2e8f0; color: #94a3b8; font-size: 11px; text-align: center; }
+  @media print { body { -webkit-print-color-adjust: exact; print-color-adjust: exact; } }
+</style>
 </head>
 <body>
-    <div class="container">
-        <div class="header">
-            <div class="logo">Automated VAPT Framework</div>
-            <div class="subtitle">Web Applications with Risk-Based Prioritization</div>
-            <div class="report-info">
-                <div class="report-info-grid">
-                    <div class="info-item">
-                        <span class="info-label">Target:</span>
-                        <span class="info-value">${reportData.executiveSummary.targetInfo.target}</span>
-                    </div>
-                    <div class="info-item">
-                        <span class="info-label">Scan Type:</span>
-                        <span class="info-value">${reportData.executiveSummary.targetInfo.scanType}</span>
-                    </div>
-                    <div class="info-item">
-                        <span class="info-label">Generated:</span>
-                        <span class="info-value">${currentDate} at ${currentTime}</span>
-                    </div>
-                    <div class="info-item">
-                        <span class="info-label">Confidence:</span>
-                        <span class="info-value">${reportData.executiveSummary.targetInfo.confidence}%</span>
-                    </div>
-                </div>
-            </div>
-        </div>
+<div class="page">
+  <div class="header">
+    <h1>Automated Sentinel Threat Engine™ — Security Assessment Report</h1>
+    <div class="sub">Target: <strong>${meta.targetValue}</strong> &nbsp;|&nbsp; Profile: ${meta.profile} &nbsp;|&nbsp; Generated: ${new Date().toLocaleString()} &nbsp;|&nbsp; Methodology: ${meta.methodology || "OWASP Testing Guide v4.2"}</div>
+  </div>
 
-        <div class="executive-summary">
-            <h1>Executive Summary</h1>
-            <div class="risk-metrics">
-                <div class="risk-card">
-                    <div class="risk-number">${totalVulns}</div>
-                    <div class="risk-label">Total Vulnerabilities</div>
-                </div>
-                <div class="risk-card">
-                    <div class="risk-number">${criticalCount}</div>
-                    <div class="risk-label">Critical Issues</div>
-                </div>
-                <div class="risk-card">
-                    <div class="risk-number">${highCount}</div>
-                    <div class="risk-label">High Priority</div>
-                </div>
-                <div class="risk-card">
-                    <div class="risk-number">${riskScore}/10</div>
-                    <div class="risk-label">Risk Score</div>
-                </div>
-            </div>
-            <p style="margin-top: 20px; font-size: 16px; line-height: 1.6;">
-                This comprehensive security assessment identified <strong>${totalVulns} vulnerabilities</strong> across the target infrastructure. 
-                Immediate attention is required for <strong>${criticalCount} critical</strong> and <strong>${highCount} high-priority</strong> issues. 
-                The overall risk level is classified as <strong>${reportData.executiveSummary.riskAssessment.overallRisk}</strong>.
-            </p>
-        </div>
+  <div class="meta-grid">
+    <div class="meta-card"><div class="num">${vulns.length}</div><div class="lbl">Total Findings</div></div>
+    <div class="meta-card"><div class="num" style="color:#dc2626">${criticalCount}</div><div class="lbl">Critical</div></div>
+    <div class="meta-card"><div class="num" style="color:#ea580c">${highCount}</div><div class="lbl">High</div></div>
+    <div class="meta-card"><div class="num" style="color:#2563eb">${riskScore}/10</div><div class="lbl">Risk Score</div></div>
+  </div>
 
-        <div class="page-break"></div>
+  <h2>Scan Summary</h2>
+  <table class="info-table">
+    <tr><td>Target</td><td>${meta.targetValue}</td></tr>
+    <tr><td>Target Classification</td><td>${meta.tier ?? meta.riskLevel ?? "Standard"}</td></tr>
+    <tr><td>Assessment Profile</td><td>${meta.profile}</td></tr>
+    <tr><td>Live HTTP Checks</td><td>${meta.liveChecks ? "Yes — real headers captured" : "No — heuristic only"}</td></tr>
+    <tr><td>Confidence</td><td>${meta.confidence}%</td></tr>
+    <tr><td>Scan Duration</td><td>${meta.scanDuration}</td></tr>
+    <tr><td>Analysis Notes</td><td>${meta.analysisNotes}</td></tr>
+    <tr><td>Open Ports</td><td>${(recon.openPorts || []).join(", ") || "—"}</td></tr>
+    <tr><td>Server Banner</td><td>${recon.server || "—"}</td></tr>
+    <tr><td>Subdomains Found</td><td>${(recon.subdomains || []).join(", ") || "—"}</td></tr>
+  </table>
 
-        <h1>Detailed Vulnerability Analysis</h1>
-        <div class="vulnerability-section">
-            ${reportData.technicalFindings
-              .map(
-                (vuln: any, index: number) => `
-            <div class="vuln-card">
-                <div class="vuln-header ${vuln.severity}">
-                    <h3 class="vuln-title">${index + 1}. ${vuln.title}</h3>
-                    <span class="severity-badge severity-${vuln.severity}">${vuln.severity}</span>
-                </div>
-                <div class="vuln-content">
-                    <div class="vuln-meta">
-                        <div class="meta-item">
-                            <span class="meta-label">OWASP Category</span>
-                            <span class="meta-value">${vuln.owaspCategory || vuln.category}</span>
-                        </div>
-                        <div class="meta-item">
-                            <span class="meta-label">CVSS Score</span>
-                            <span class="meta-value">${vuln.cvss || "N/A"}</span>
-                        </div>
-                        <div class="meta-item">
-                            <span class="meta-label">CVE Reference</span>
-                            <span class="meta-value">${vuln.cve || "N/A"}</span>
-                        </div>
-                        <div class="meta-item">
-                            <span class="meta-label">Risk Score</span>
-                            <span class="meta-value">${vuln.riskScore || "N/A"}/10</span>
-                        </div>
-                    </div>
-                    
-                    <div class="vuln-description">
-                        <strong>Description:</strong><br>
-                        ${vuln.description}
-                    </div>
-                    
-                    <div class="vuln-description">
-                        <strong>Business Impact:</strong><br>
-                        ${vuln.businessImpact || vuln.impact}
-                    </div>
-                    
-                    <div class="vuln-description">
-                        <strong>Technical Details:</strong><br>
-                        ${vuln.technicalDetails}
-                    </div>
-                    
-                    <div class="vuln-description">
-                        <strong>Affected Components:</strong><br>
-                        ${vuln.affectedComponents.join(", ")}
-                    </div>
-                    
-                    ${
-                      vuln.proofOfConcept
-                        ? `
-                    <div class="vuln-description">
-                        <strong>Proof of Concept:</strong>
-                        <div class="code-block">${vuln.proofOfConcept}</div>
-                    </div>
-                    `
-                        : ""
-                    }
-                    
-                    <div class="solution-box">
-                        <div class="solution-title">ðŸ›¡ï¸ Professional Remediation Solution</div>
-                        <div>${vuln.remediation}</div>
-                        ${vuln.endpointUrl ? `<br><strong>Affected Endpoint:</strong> ${vuln.endpointUrl}` : ""}
-                    </div>
-                </div>
-            </div>
-            `,
-              )
-              .join("")}
-        </div>
+  <h2>Vulnerability Findings (${vulns.length})</h2>
+  ${vulns.length > 0 ? vulnRows : "<p style='color:#64748b;font-style:italic'>No vulnerabilities found. Target appears well-configured.</p>"}
 
-        <div class="page-break"></div>
+  <h2>OWASP Top 10 Compliance</h2>
+  <table class="owasp-table">
+    <thead><tr><th>Category</th><th>Status</th><th>Findings</th><th>Details</th></tr></thead>
+    <tbody>${owaspRows || "<tr><td colspan='4'>No compliance data available</td></tr>"}</tbody>
+  </table>
 
-        <h1>OWASP Compliance Assessment</h1>
-        <div class="compliance-grid">
-            <div class="compliance-card">
-                <h3>Compliance Overview</h3>
-                <div class="compliance-status">
-                    <span>Overall Compliance:</span>
-                    <span class="${reportData.owaspCompliance.compliancePercentage >= 70 ? "status-compliant" : "status-non-compliant"}">
-                        ${reportData.owaspCompliance.compliancePercentage || 0}%
-                    </span>
-                </div>
-                <div class="compliance-status">
-                    <span>Compliant Categories:</span>
-                    <span class="status-compliant">${reportData.owaspCompliance.compliant || 0}</span>
-                </div>
-                <div class="compliance-status">
-                    <span>Non-Compliant Categories:</span>
-                    <span class="status-non-compliant">${reportData.owaspCompliance.nonCompliant || 0}</span>
-                </div>
-                <div class="compliance-status">
-                    <span>Risk Score:</span>
-                    <span>${reportData.owaspCompliance.riskScore || 0}/${reportData.owaspCompliance.maxRiskScore || 10}</span>
-                </div>
-            </div>
-            
-            <div class="compliance-card">
-                <h3>Detailed Findings</h3>
-                ${
-                  reportData.owaspCompliance
-                    ?.findings
-                    ?.map(
-                      (finding: any) => `
-                <div class="compliance-status">
-                    <span style="font-size: 12px;">${finding.category}</span>
-                    <span class="${finding.status === "Compliant" ? "status-compliant" : "status-non-compliant"}">
-                        ${finding.status}
-                    </span>
-                </div>
-                `,
-                    )
-                    .join("") || "<p>No detailed findings available</p>"
-                }
-            </div>
-        </div>
-
-        <h1>Reconnaissance Intelligence</h1>
-        <div class="vuln-description">
-            <strong>Infrastructure Analysis:</strong><br>
-            â€¢ Discovered Assets: ${reportData.reconnaissance.discoveredAssets || 0}<br>
-            â€¢ Open Ports: ${reportData.reconnaissance.openPorts?.join(", ") || "None detected"}<br>
-            â€¢ Running Services: ${reportData.reconnaissance.services?.join(", ") || "None identified"}<br>
-            â€¢ Technology Stack: ${reportData.reconnaissance.technologies?.join(", ") || "None identified"}<br>
-            â€¢ Subdomains: ${reportData.reconnaissance.subdomains?.join(", ") || "None discovered"}<br>
-            â€¢ DNS Records: ${reportData.reconnaissance.dnsRecords?.length || 0} records extracted<br>
-            â€¢ OS Fingerprint: ${reportData.reconnaissance.osFingerprint || "Not determined"}
-        </div>
-
-        <div class="recommendations">
-            <h2>ðŸŽ¯ Professional Security Recommendations</h2>
-            ${
-              reportData.recommendations
-                ?.map(
-                  (rec: string, index: number) => `
-            <div class="recommendation-item">
-                <strong>${index + 1}.</strong> ${rec}
-            </div>
-            `,
-                )
-                .join("") || "<p>No specific recommendations available</p>"
-            }
-            
-            <div class="recommendation-item">
-                <strong>Priority Actions:</strong> Address all critical and high-severity vulnerabilities within 24-48 hours.
-            </div>
-            
-            <div class="recommendation-item">
-                <strong>Security Monitoring:</strong> Implement continuous security monitoring and regular vulnerability assessments.
-            </div>
-            
-            <div class="recommendation-item">
-                <strong>Compliance:</strong> Ensure adherence to industry standards (OWASP, NIST, ISO 27001).
-            </div>
-        </div>
-
-        <div class="footer">
-            <h2>Assessment Methodology</h2>
-            <p>${reportData.methodology}</p>
-            <p style="margin-top: 20px;">
-                This assessment was conducted using industry-standard penetration testing methodologies including:<br>
-                â€¢ OWASP Testing Guide v4.2<br>
-                â€¢ NIST SP 800-115<br>
-                â€¢ PTES (Penetration Testing Execution Standard)<br>
-                â€¢ Automated vulnerability detection
-            </p>
-            <hr style="margin: 30px 0; border: none; height: 1px; background: #e0e0e0;">
-            <p><strong>Report Generated by Automated VAPT Framework</strong></p>
-            <p>Â© ${new Date().getFullYear()} Automated VAPT Framework - Security Assessment</p>
-            <p style="font-size: 12px; margin-top: 10px;">This report contains confidential and proprietary information. Distribution is restricted to authorized personnel only.</p>
-        </div>
-    </div>
-</body>
-</html>
-`;
-  };
-
-  const downloadPDFReport = async (content: string, target: string) => {
-    try {
-      console.log("Starting PDF generation...");
-
-      // Create a simple text-based report as fallback
-      const createTextReport = () => {
-        const timestamp = new Date().toISOString().split("T")[0];
-        const cleanTarget = target.replace(/[^a-zA-Z0-9]/g, "_");
-        const filename = `VAPT_Security_Report_${cleanTarget}_${timestamp}.txt`;
-
-        const textContent = `
-AUTOMATED VAPT FRAMEWORK SECURITY ASSESSMENT REPORT
-===================================================
-Target: ${target}
-Date: ${new Date().toLocaleString()}
-Profile: ${scanResults.scanMetadata?.profile || "N/A"}
-Confidence: ${scanResults.scanMetadata?.confidence || "0"}%
-Report Type: Comprehensive Security Assessment
-
-EXECUTIVE SUMMARY
------------------
-This comprehensive security assessment identified ${scanResults?.vulnerabilities?.length || 0} vulnerabilities across the target infrastructure.
-Immediate attention is required for critical and high-priority issues.
-
-VULNERABILITY FINDINGS
-----------------------
-${
-  scanResults?.vulnerabilities
-    ?.map(
-      (vuln: any, index: number) => `
-${index + 1}. ${vuln.title}
-   Severity: ${vuln.severity.toUpperCase()}
-   CVSS: ${vuln.cvss || "N/A"}
-   Category: ${vuln.owaspCategory || vuln.category}
-   
-   Description: ${vuln.description}
-   
-   Impact: ${vuln.impact}
-   
-   Remediation: ${vuln.remediation}
-   
-   ---
-`,
-    )
-    .join("") || "No vulnerabilities found."
-}
-
-RECOMMENDATIONS
----------------
-â€¢ Address all critical and high-severity vulnerabilities within 24-48 hours
-â€¢ Implement continuous security monitoring
-â€¢ Conduct regular vulnerability assessments
-â€¢ Ensure compliance with industry standards (OWASP, NIST)
-
----
-Automated VAPT Framework
-Â© ${new Date().getFullYear()} - Security Assessment
-This report contains confidential information. Distribution restricted to authorized personnel.
-`;
-
-        const blob = new Blob([textContent], {
-          type: "text/plain;charset=utf-8",
-        });
-        const url = URL.createObjectURL(blob);
-        const link = document.createElement("a");
-        link.href = url;
-        link.download = filename;
-        link.style.display = "none";
-
-        document.body.appendChild(link);
-        link.click();
-        document.body.removeChild(link);
-        URL.revokeObjectURL(url);
-
-        return filename;
-      };
-
-      // Try PDF generation first
-      try {
-        // Dynamically import PDF generation libraries
-        const jsPDFModule = await import("jspdf");
-        const html2canvasModule = await import("html2canvas");
-
-        const jsPDF = jsPDFModule.default;
-        const html2canvas = html2canvasModule.default;
-
-        console.log("Libraries loaded successfully");
-
-        // Create a clean, simple report structure
-        const reportHTML = `
-<!DOCTYPE html>
-<html>
-<head>
-    <meta charset="UTF-8">
-    <style>
-        body { 
-            font-family: Arial, sans-serif; 
-            font-size: 14px; 
-            line-height: 1.6; 
-            color: #333; 
-            background: white;
-            max-width: 800px;
-            margin: 0 auto;
-            padding: 40px 20px;
-        }
-        .header { 
-            text-align: center; 
-            margin-bottom: 40px; 
-            border-bottom: 3px solid #e74c3c; 
-            padding-bottom: 20px; 
-        }
-        .logo { 
-            font-size: 32px; 
-            font-weight: bold; 
-            color: #e74c3c; 
-            margin-bottom: 10px; 
-        }
-        .subtitle { 
-            font-size: 18px; 
-            color: #666; 
-            margin-bottom: 20px;
-        }
-        .info-grid {
-            display: grid;
-            grid-template-columns: 1fr 1fr;
-            gap: 20px;
-            margin: 20px 0;
-            padding: 20px;
-            background: #f8f9fa;
-            border-radius: 8px;
-        }
-        .info-item {
-            display: flex;
-            justify-content: space-between;
-            padding: 8px 0;
-            border-bottom: 1px solid #ddd;
-        }
-        .section { 
-            margin: 30px 0; 
-        }
-        .section h2 { 
-            font-size: 24px; 
-            color: #2c3e50; 
-            margin-bottom: 20px; 
-            border-bottom: 2px solid #3498db; 
-            padding-bottom: 10px; 
-        }
-        .vuln-item { 
-            margin: 20px 0; 
-            padding: 20px; 
-            border: 1px solid #ddd; 
-            border-radius: 8px; 
-            page-break-inside: avoid;
-        }
-        .severity-critical { 
-            border-left: 5px solid #dc3545; 
-            background: #fff5f5; 
-        }
-        .severity-high { 
-            border-left: 5px solid #fd7e14; 
-            background: #fff8f0; 
-        }
-        .severity-medium { 
-            border-left: 5px solid #ffc107; 
-            background: #fffbf0; 
-        }
-        .severity-low { 
-            border-left: 5px solid #28a745; 
-            background: #f8fff8; 
-        }
-        .vuln-title {
-            font-size: 18px;
-            font-weight: bold;
-            margin-bottom: 15px;
-            color: #2c3e50;
-        }
-        .meta { 
-            display: grid;
-            grid-template-columns: repeat(3, 1fr);
-            gap: 15px; 
-            margin: 15px 0; 
-            padding: 15px;
-            background: #f8f9fa;
-            border-radius: 5px;
-        }
-        .meta-item { 
-            text-align: center;
-        }
-        .meta-label { 
-            font-weight: bold; 
-            color: #666; 
-            font-size: 12px;
-            text-transform: uppercase;
-            margin-bottom: 5px;
-        }
-        .meta-value {
-            font-size: 14px;
-            color: #333;
-        }
-        .description { 
-            margin: 15px 0; 
-            padding: 15px; 
-            background: #f8f9fa; 
-            border-radius: 5px; 
-            border-left: 4px solid #007bff;
-        }
-        .remediation { 
-            margin: 15px 0; 
-            padding: 15px; 
-            background: #d4edda; 
-            border-radius: 5px; 
-            border-left: 4px solid #28a745;
-        }
-        .footer { 
-            margin-top: 50px; 
-            text-align: center; 
-            font-size: 12px; 
-            color: #666; 
-            border-top: 2px solid #ddd; 
-            padding-top: 30px; 
-        }
-        @media print {
-            body { margin: 0; padding: 20px; }
-            .page-break { page-break-before: always; }
-        }
-    </style>
-</head>
-<body>
-    <div class="header">
-        <div class="logo">VAPT Framework</div>
-        <div class="subtitle">Professional Security Assessment Report</div>
-        <div class="info-grid">
-            <div class="info-item">
-                <span><strong>Target:</strong></span>
-                <span>${target}</span>
-            </div>
-            <div class="info-item">
-                <span><strong>Generated:</strong></span>
-                <span>${new Date().toLocaleDateString()}</span>
-            </div>
-            <div class="info-item">
-                <span><strong>Report Type:</strong></span>
-                <span>Comprehensive Assessment</span>
-            </div>
-            <div class="info-item">
-                <span><strong>Confidence:</strong></span>
-                <span>${scanResults?.scanMetadata?.confidence || 92}%</span>
-            </div>
-        </div>
-    </div>
-
-    <div class="section">
-        <h2>Executive Summary</h2>
-        <p>This comprehensive security assessment identified <strong>${scanResults?.vulnerabilities?.length || 0} vulnerabilities</strong> across the target infrastructure. Immediate attention is required for critical and high-priority issues. The assessment was conducted using industry-standard penetration testing methodologies.</p>
-    </div>
-
-    <div class="section">
-        <h2>Vulnerability Findings</h2>
-        ${
-          scanResults?.vulnerabilities
-            ?.map(
-              (vuln: any, index: number) => `
-        <div class="vuln-item severity-${vuln.severity}">
-            <div class="vuln-title">${index + 1}. ${vuln.title}</div>
-            <div class="meta">
-                <div class="meta-item">
-                    <div class="meta-label">Severity</div>
-                    <div class="meta-value">${vuln.severity.toUpperCase()}</div>
-                </div>
-                <div class="meta-item">
-                    <div class="meta-label">CVSS Score</div>
-                    <div class="meta-value">${vuln.cvss || "N/A"}</div>
-                </div>
-                <div class="meta-item">
-                    <div class="meta-label">Category</div>
-                    <div class="meta-value">${vuln.owaspCategory || vuln.category}</div>
-                </div>
-            </div>
-            <div class="description">
-                <strong>Description:</strong><br>
-                ${vuln.description}
-            </div>
-            <div class="description">
-                <strong>Business Impact:</strong><br>
-                ${vuln.businessImpact || vuln.impact}
-            </div>
-            <div class="remediation">
-                <strong>Remediation:</strong><br>
-                ${vuln.remediation}
-            </div>
-        </div>
-        `,
-            )
-            .join("") ||
-          "<p>No vulnerabilities found during this assessment.</p>"
-        }
-    </div>
-
-    <div class="section">
-        <h2>Professional Recommendations</h2>
-        <ul style="line-height: 2; padding-left: 20px;">
-            <li>Address all critical and high-severity vulnerabilities within 24-48 hours</li>
-            <li>Implement continuous security monitoring and alerting systems</li>
-            <li>Conduct regular vulnerability assessments and penetration testing</li>
-            <li>Ensure compliance with industry standards (OWASP, NIST, ISO 27001)</li>
-            <li>Establish incident response procedures and security awareness training</li>
-        </ul>
-    </div>
-
-    <div class="footer">
-        <p><strong>Automated VAPT Framework</strong></p>
-        <p>Â© ${new Date().getFullYear()} - Security Assessment</p>
-        <p>This report contains confidential and proprietary information.<br>Distribution is restricted to authorized personnel only.</p>
-        <p style="margin-top: 20px; font-size: 10px;">Assessment conducted using OWASP Testing Guide v4.2, NIST SP 800-115, and PTES methodologies.</p>
-    </div>
+  <div class="footer">
+    Automated Sentinel Threat Engine™ for Web Applications — ${new Date().getFullYear()} &nbsp;|&nbsp;
+    This report is for educational and authorized security testing purposes only.
+  </div>
+</div>
 </body>
 </html>`;
 
-        // Create temporary element
-        const tempDiv = document.createElement("div");
-        tempDiv.innerHTML = reportHTML;
-        tempDiv.style.cssText =
-          "position: fixed; top: -9999px; left: -9999px; width: 210mm; background: white;";
-        document.body.appendChild(tempDiv);
-
-        // Wait for rendering
-        await new Promise((resolve) => setTimeout(resolve, 500));
-
-        // Generate canvas
-        const canvas = await html2canvas(tempDiv, {
-          scale: 2,
-          useCORS: true,
-          allowTaint: false,
-          backgroundColor: "#ffffff",
-          width: 794, // A4 width in pixels at 96 DPI
-          logging: false,
-        });
-
-        // Clean up
-        document.body.removeChild(tempDiv);
-
-        // Create PDF
-        const pdf = new jsPDF({
-          orientation: "portrait",
-          unit: "mm",
-          format: "a4",
-        });
-
-        const imgData = canvas.toDataURL("image/png", 1.0);
-        const pdfWidth = 210;
-        const pdfHeight = 297;
-        const imgWidth = pdfWidth - 20; // margins
-        const imgHeight = (canvas.height * imgWidth) / canvas.width;
-
-        let heightLeft = imgHeight;
-        let position = 10;
-
-        // Add first page
-        pdf.addImage(imgData, "PNG", 10, position, imgWidth, imgHeight);
-        heightLeft -= pdfHeight - 20;
-
-        // Add additional pages if needed
-        while (heightLeft >= 0) {
-          position = heightLeft - imgHeight + 10;
-          pdf.addPage();
-          pdf.addImage(imgData, "PNG", 10, position, imgWidth, imgHeight);
-          heightLeft -= pdfHeight - 20;
-        }
-
-        // Save PDF
-        const timestamp = new Date().toISOString().split("T")[0];
-        const cleanTarget = target.replace(/[^a-zA-Z0-9]/g, "_");
-        const filename = `VAPT_Security_Report_${cleanTarget}_${timestamp}.pdf`;
-
-        pdf.save(filename);
-
-        alert(
-          `âœ… PDF Report Generated Successfully!\n\nðŸ“„ File: ${filename}\n\nðŸ“¥ The report has been downloaded to your Downloads folder.`,
-        );
-      } catch (pdfError) {
-        console.warn("PDF generation failed:", pdfError);
-        alert("PDF generation failed. Please try again.");
-      }
-    } catch (error) {
-      console.error("Report generation error:", error);
-      alert("Report generation encountered an error. Please try again.");
+    const win = window.open("", "_blank");
+    if (!win) {
+      alert("Popup blocked. Please allow popups for this site and try again.");
+      return;
     }
+    win.document.write(html);
+    win.document.close();
+    // Slight delay to ensure styles render before print dialog opens
+    setTimeout(() => win.print(), 600);
   };
+
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-background via-background to-background/95 text-foreground p-6 relative overflow-hidden">
@@ -1280,15 +294,15 @@ This report contains confidential information. Distribution restricted to author
         <div className="flex justify-between items-center">
           <div className="flex items-center gap-4">
             <div className="relative">
-              <Shield className="h-10 w-10 text-emerald-500 animate-pulse" />
-              <div className="absolute inset-0 h-10 w-10 bg-emerald-500/20 rounded-full animate-ping" />
+              <Shield className="h-10 w-10 text-indigo-500 animate-pulse" />
+              <div className="absolute inset-0 h-10 w-10 bg-indigo-500/20 rounded-full animate-ping" />
             </div>
             <div>
-              <h1 className="text-3xl font-bold bg-gradient-to-r from-emerald-400 via-emerald-500 to-cyan-400 bg-clip-text text-transparent">
-                VAPT Framework
+              <h1 className="text-3xl font-bold bg-gradient-to-r from-indigo-400 via-indigo-500 to-fuchsia-400 bg-clip-text text-transparent">
+                Sentinel Threat Engine™
               </h1>
               <p className="text-sm text-muted-foreground mt-1">
-                Automated Security Assessment Platform
+                Neural Penetration Testing Matrix
               </p>
             </div>
           </div>
@@ -1324,7 +338,7 @@ This report contains confidential information. Distribution restricted to author
         </div>
 
         <div className="lg:col-span-3">
-          <Card className="border-slate-700/30 bg-slate-900/30 backdrop-blur-xl">
+          <Card className="border-zinc-700/30 bg-zinc-900/30 backdrop-blur-xl">
             <CardContent className="p-6">
               <Tabs
                 defaultValue="dashboard"
@@ -1365,7 +379,7 @@ This report contains confidential information. Distribution restricted to author
                           </div>
                           <div>
                             <h3 className="text-lg font-semibold text-blue-400">
-                              ðŸš€ Enhanced Reconnaissance Available
+                              🚀 Enhanced Reconnaissance Available
                             </h3>
                             <p className="text-sm text-blue-300/80">
                               Advanced subdomain discovery and DNS analysis
@@ -1385,16 +399,16 @@ This report contains confidential information. Distribution restricted to author
                         </Button>
                       </div>
                       <div className="mt-3 grid grid-cols-2 md:grid-cols-4 gap-3 text-xs">
-                        <div className="flex items-center gap-2 text-emerald-400">
-                          <div className="w-2 h-2 bg-emerald-400 rounded-full animate-pulse" />
+                        <div className="flex items-center gap-2 text-indigo-400">
+                          <div className="w-2 h-2 bg-indigo-400 rounded-full animate-pulse" />
                           <span>
                             {scanResults?.reconnaissance?.subdomains?.length ||
                               0}{" "}
                             Subdomains Found
                           </span>
                         </div>
-                        <div className="flex items-center gap-2 text-cyan-400">
-                          <div className="w-2 h-2 bg-cyan-400 rounded-full animate-pulse" />
+                        <div className="flex items-center gap-2 text-fuchsia-400">
+                          <div className="w-2 h-2 bg-fuchsia-400 rounded-full animate-pulse" />
                           <span>
                             {scanResults?.reconnaissance?.dnsRecords?.length ||
                               0}{" "}
@@ -1411,11 +425,65 @@ This report contains confidential information. Distribution restricted to author
                         </div>
                         <div className="flex items-center gap-2">
                           {scanResults?.scanMetadata?.liveChecks ? (
-                            <><Wifi className="h-3 w-3 text-green-400" /><span className="text-green-400">Live HTTP Audit</span></>
+                            <><Wifi className="h-3 w-3 text-indigo-400" /><span className="text-indigo-400">Live HTTP Audit</span></>
                           ) : (
                             <><WifiOff className="h-3 w-3 text-yellow-400" /><span className="text-yellow-400">Heuristic Only</span></>
                           )}
                         </div>
+                      </div>
+                    </div>
+                  )}
+                  {showTerminal && (
+                    <div className="mb-8 rounded-xl overflow-hidden border border-[#1e293b] shadow-2xl bg-[#0a0a0f] font-mono text-[13px] text-indigo-400 relative">
+                      <div className="flex items-center gap-3 px-4 py-2.5 bg-[#130A24] border-b border-[#1e293b]">
+                        <div className="flex gap-2">
+                          <div className="w-3 h-3 rounded-full bg-red-500/80 shadow-[0_0_5px_rgba(239,68,68,0.5)]" />
+                          <div className="w-3 h-3 rounded-full bg-yellow-500/80 shadow-[0_0_5px_rgba(234,179,8,0.5)]" />
+                          <div className="w-3 h-3 rounded-full bg-indigo-500/80 shadow-[0_0_5px_rgba(34,197,94,0.5)]" />
+                        </div>
+                        <div className="flex-1 flex justify-center items-center gap-2">
+                          <Terminal className="h-4 w-4 text-zinc-500" />
+                          <span className="text-zinc-400 font-medium text-xs tracking-wider uppercase">VAPT Live Execution Terminal</span>
+                        </div>
+                        {scanInProgress ? (
+                          <div className="flex items-center gap-2">
+                            <span className="text-indigo-500 text-xs animate-pulse">Running</span>
+                            <div className="w-2 h-2 rounded-full bg-indigo-500 animate-ping" />
+                          </div>
+                        ) : (
+                          <span className="text-zinc-500 text-xs">Terminated</span>
+                        )}
+                      </div>
+                      <div className="absolute top-0 right-0 p-4 opacity-5 pointer-events-none">
+                        <Shield className="w-32 h-32 text-indigo-500" />
+                      </div>
+                      <div
+                        ref={terminalRef}
+                        className="p-5 h-[350px] overflow-y-auto whitespace-pre-wrap terminal-scroll tracking-tight leading-relaxed z-10 relative"
+                        style={{ scrollBehavior: 'smooth' }}
+                      >
+                        {terminalLogs.map((log, i) => (
+                          <div key={i} className="mb-1 flex">
+                            <span className="text-zinc-600 mr-3 select-none">{new Date().toISOString().substring(11,19)}</span>
+                            <div className="flex-1">
+                              {log.includes("[!]") || log.includes("[ERROR]") ? (
+                                <span className="text-red-400 font-semibold drop-shadow-[0_0_2px_rgba(248,113,113,0.8)]">{log}</span>
+                              ) : log.includes("[+]") ? (
+                                <span className="text-indigo-400">{log}</span>
+                              ) : log.includes("====") || log.includes("----") || log.includes("┌") || log.includes("└") || log.includes("│") || log.includes("═") ? (
+                                <span className="text-fuchsia-600 font-bold">{log}</span>
+                              ) : (
+                                <span className="text-zinc-300">{log}</span>
+                              )}
+                            </div>
+                          </div>
+                        ))}
+                        {scanInProgress && (
+                          <div className="flex mt-2">
+                            <span className="text-zinc-600 mr-3 select-none">{new Date().toISOString().substring(11,19)}</span>
+                            <span className="text-indigo-500 animate-pulse">_</span>
+                          </div>
+                        )}
                       </div>
                     </div>
                   )}
@@ -1432,14 +500,14 @@ This report contains confidential information. Distribution restricted to author
                 </TabsContent>
 
                 <TabsContent value="reconnaissance">
-                  <div className="mb-4 p-4 bg-gradient-to-r from-emerald-900/20 to-cyan-900/20 rounded-lg border border-emerald-500/30">
+                  <div className="mb-4 p-4 bg-gradient-to-r from-indigo-900/20 to-fuchsia-900/20 rounded-lg border border-indigo-500/30">
                     <div className="flex items-center gap-2 mb-2">
-                      <Wifi className="h-5 w-5 text-emerald-400" />
-                      <h3 className="text-lg font-semibold text-emerald-400">
+                      <Wifi className="h-5 w-5 text-indigo-400" />
+                      <h3 className="text-lg font-semibold text-indigo-400">
                         Live Security Header Audit
                       </h3>
                     </div>
-                    <p className="text-sm text-emerald-300/80">
+                    <p className="text-sm text-indigo-300/80">
                       Real HTTP HEAD requests were made to the target. Security headers,
                       server banners, and response codes were captured live.
                       Findings are evidence-driven from actual observations.
@@ -1460,7 +528,7 @@ This report contains confidential information. Distribution restricted to author
                           <span className="text-sm text-gray-400">
                             Confidence:
                           </span>
-                          <span className="text-sm font-bold text-emerald-400">
+                          <span className="text-sm font-bold text-indigo-400">
                             {scanResults.scanMetadata?.confidence || 85}%
                           </span>
                         </div>
@@ -1473,21 +541,21 @@ This report contains confidential information. Distribution restricted to author
                         </h4>
                         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                           <div className="space-y-2">
-                            <div className={`flex items-center p-2 rounded ${scanResults.reconnaissance.isHardened ? 'bg-green-800/20' : 'bg-red-800/30'}`}>
-                              <div className={`w-2 h-2 rounded-full mr-3 ${scanResults.reconnaissance.isHardened ? 'bg-green-500' : 'bg-red-500'}`}></div>
-                              <span className={`${scanResults.reconnaissance.isHardened ? 'text-green-300' : 'text-red-300'} text-sm`}>
+                            <div className={`flex items-center p-2 rounded ${scanResults.reconnaissance.isHardened ? 'bg-indigo-800/20' : 'bg-red-800/30'}`}>
+                              <div className={`w-2 h-2 rounded-full mr-3 ${scanResults.reconnaissance.isHardened ? 'bg-indigo-500' : 'bg-red-500'}`}></div>
+                              <span className={`${scanResults.reconnaissance.isHardened ? 'text-indigo-300' : 'text-red-300'} text-sm`}>
                                 {scanResults.reconnaissance.isHardened ? "TLS 1.2/1.3 Modern Protocols" : "TLS 1.0/1.1 Deprecated Protocols"}
                               </span>
                             </div>
-                            <div className={`flex items-center p-2 rounded ${scanResults.reconnaissance.isHardened ? 'bg-green-800/20' : 'bg-orange-800/30'}`}>
-                              <div className={`w-2 h-2 rounded-full mr-3 ${scanResults.reconnaissance.isHardened ? 'bg-green-500' : 'bg-orange-500'}`}></div>
-                              <span className={`${scanResults.reconnaissance.isHardened ? 'text-green-300' : 'text-orange-300'} text-sm`}>
+                            <div className={`flex items-center p-2 rounded ${scanResults.reconnaissance.isHardened ? 'bg-indigo-800/20' : 'bg-orange-800/30'}`}>
+                              <div className={`w-2 h-2 rounded-full mr-3 ${scanResults.reconnaissance.isHardened ? 'bg-indigo-500' : 'bg-orange-500'}`}></div>
+                              <span className={`${scanResults.reconnaissance.isHardened ? 'text-indigo-300' : 'text-orange-300'} text-sm`}>
                                 {scanResults.reconnaissance.isHardened ? "Strong Cipher Suites (AES-GCM)" : "Weak Cipher Suites (RC4, DES)"}
                               </span>
                             </div>
-                            <div className={`flex items-center p-2 rounded ${scanResults.reconnaissance.isHardened ? 'bg-green-800/20' : 'bg-yellow-800/30'}`}>
-                              <div className={`w-2 h-2 rounded-full mr-3 ${scanResults.reconnaissance.isHardened ? 'bg-green-500' : 'bg-yellow-500'}`}></div>
-                              <span className={`${scanResults.reconnaissance.isHardened ? 'text-green-300' : 'text-yellow-300'} text-sm`}>
+                            <div className={`flex items-center p-2 rounded ${scanResults.reconnaissance.isHardened ? 'bg-indigo-800/20' : 'bg-yellow-800/30'}`}>
+                              <div className={`w-2 h-2 rounded-full mr-3 ${scanResults.reconnaissance.isHardened ? 'bg-indigo-500' : 'bg-yellow-500'}`}></div>
+                              <span className={`${scanResults.reconnaissance.isHardened ? 'text-indigo-300' : 'text-yellow-300'} text-sm`}>
                                 {scanResults.reconnaissance.isHardened ? "HSTS Header Enforced" : "Missing HSTS Header"}
                               </span>
                             </div>
@@ -1499,9 +567,9 @@ This report contains confidential information. Distribution restricted to author
                                 Certificate: {scanResults.reconnaissance.isHardened ? "DigiCert / Google CA" : "Let's Encrypt R3"}
                               </span>
                             </div>
-                            <div className="flex items-center p-2 bg-green-800/30 rounded">
-                              <div className="w-2 h-2 bg-green-500 rounded-full mr-3"></div>
-                              <span className="text-green-300 text-sm">
+                            <div className="flex items-center p-2 bg-indigo-800/30 rounded">
+                              <div className="w-2 h-2 bg-indigo-500 rounded-full mr-3"></div>
+                              <span className="text-indigo-300 text-sm">
                                 TLS 1.3 Supported
                               </span>
                             </div>
@@ -1512,24 +580,24 @@ This report contains confidential information. Distribution restricted to author
                       {/* Domain/IP Address Section */}
                       <div className="mb-6 p-4 bg-gray-900 rounded-lg border border-gray-700">
                         <h4 className="text-lg font-medium mb-3 text-gray-300">
-                          ðŸ“Š Reconnaissance Summary
+                          📊 Reconnaissance Summary
                         </h4>
                         <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-4">
-                          <div className="p-3 bg-emerald-900/20 rounded border border-emerald-600/30 text-center">
-                            <div className="text-3xl font-bold text-emerald-400">
+                          <div className="p-3 bg-indigo-900/20 rounded border border-indigo-600/30 text-center">
+                            <div className="text-3xl font-bold text-indigo-400">
                               {(scanResults?.reconnaissance?.subdomains && Array.isArray(scanResults.reconnaissance.subdomains)) 
                                 ? scanResults.reconnaissance.subdomains.length 
                                 : 0}
                             </div>
-                            <div className="text-xs text-emerald-300 mt-1">Subdomains Found</div>
+                            <div className="text-xs text-indigo-300 mt-1">Subdomains Found</div>
                           </div>
-                          <div className="p-3 bg-cyan-900/20 rounded border border-cyan-600/30 text-center">
-                            <div className="text-3xl font-bold text-cyan-400">
+                          <div className="p-3 bg-fuchsia-900/20 rounded border border-fuchsia-600/30 text-center">
+                            <div className="text-3xl font-bold text-fuchsia-400">
                               {(scanResults?.reconnaissance?.dnsRecords && Array.isArray(scanResults.reconnaissance.dnsRecords)) 
                                 ? scanResults.reconnaissance.dnsRecords.length 
                                 : 0}
                             </div>
-                            <div className="text-xs text-cyan-300 mt-1">DNS Records</div>
+                            <div className="text-xs text-fuchsia-300 mt-1">DNS Records</div>
                           </div>
                           <div className="p-3 bg-purple-900/20 rounded border border-purple-600/30 text-center">
                             <div className="text-3xl font-bold text-purple-400">
@@ -1553,7 +621,7 @@ This report contains confidential information. Distribution restricted to author
                             <p className="text-sm text-gray-400 mb-1">
                               Original Target:
                             </p>
-                            <p className="text-emerald-400 font-mono text-lg">
+                            <p className="text-indigo-400 font-mono text-lg">
                               {scanResults.scanMetadata?.targetValue}
                             </p>
                           </div>
@@ -1561,7 +629,7 @@ This report contains confidential information. Distribution restricted to author
                             <p className="text-sm text-gray-400 mb-1">
                               Resolved IP Address:
                             </p>
-                            <p className="text-cyan-400 font-mono text-lg">
+                            <p className="text-fuchsia-400 font-mono text-lg">
                               {scanResults.scanMetadata?.targetType === "domain"
                                 ? (scanResults.reconnaissance?.dnsRecords?.[0]?.value || "Resolved via DNS")
                                 : scanResults.scanMetadata?.targetValue}
@@ -1589,20 +657,20 @@ This report contains confidential information. Distribution restricted to author
                               (port: number, index: number) => (
                                 <div
                                   key={index}
-                                  className="flex items-center p-2 bg-slate-800 rounded border border-slate-700 hover:border-emerald-500/50 transition-colors"
+                                  className="flex items-center p-2 bg-zinc-800 rounded border border-zinc-700 hover:border-indigo-500/50 transition-colors"
                                 >
-                                  <div className="w-2 h-2 bg-emerald-500 rounded-full mr-3 animate-pulse"></div>
-                                  <span className="text-emerald-300 font-mono">
+                                  <div className="w-2 h-2 bg-indigo-500 rounded-full mr-3 animate-pulse"></div>
+                                  <span className="text-indigo-300 font-mono">
                                     {port}
                                   </span>
-                                  <span className="text-slate-400 text-xs ml-2">
+                                  <span className="text-zinc-400 text-xs ml-2">
                                     {scanResults.reconnaissance.services?.[index] || "Unknown"}
                                   </span>
                                 </div>
                               )
                             )
                           ) : (
-                            <div className="col-span-full p-4 text-center text-slate-500 italic">
+                            <div className="col-span-full p-4 text-center text-zinc-500 italic">
                               No open ports identified in the selected scan range.
                             </div>
                           )}
@@ -1612,23 +680,23 @@ This report contains confidential information. Distribution restricted to author
                       {/* Advanced Subdomain Discovery Section */}
                       {scanResults.reconnaissance.subdomains &&
                         scanResults.reconnaissance.subdomains.length > 0 && (
-                          <div className="mb-6 p-4 bg-emerald-900/20 border border-emerald-700 rounded-lg">
-                            <h4 className="text-lg font-medium mb-3 text-emerald-400">
-                              ðŸ” Advanced Subdomain Discovery
+                          <div className="mb-6 p-4 bg-indigo-900/20 border border-indigo-700 rounded-lg">
+                            <h4 className="text-lg font-medium mb-3 text-indigo-400">
+                              🔍 Advanced Subdomain Discovery
                             </h4>
                             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
                               {scanResults.reconnaissance.subdomains.map(
                                 (subdomain: string, index: number) => (
                                   <div
                                     key={index}
-                                    className="flex items-center p-3 bg-emerald-800/30 rounded border border-emerald-600/30"
+                                    className="flex items-center p-3 bg-indigo-800/30 rounded border border-indigo-600/30"
                                   >
-                                    <div className="w-2 h-2 bg-emerald-400 rounded-full mr-3 animate-pulse"></div>
+                                    <div className="w-2 h-2 bg-indigo-400 rounded-full mr-3 animate-pulse"></div>
                                     <div className="flex-1">
-                                      <span className="text-emerald-300 font-mono text-sm">
+                                      <span className="text-indigo-300 font-mono text-sm">
                                         {subdomain.includes(".") ? subdomain : `${subdomain}.${scanResults.scanMetadata?.targetValue.replace(/^www\./, "")}`}
                                       </span>
-                                        <span className="text-xs text-emerald-400/70 mt-1 font-mono">
+                                        <span className="text-xs text-indigo-400/70 mt-1 font-mono">
                                           DNS resolution pending
                                         </span>
                                     </div>
@@ -1636,8 +704,8 @@ This report contains confidential information. Distribution restricted to author
                                 ),
                               )}
                             </div>
-                            <div className="mt-4 p-3 bg-emerald-900/30 rounded border border-emerald-600/30">
-                              <p className="text-xs text-emerald-300">
+                            <div className="mt-4 p-3 bg-indigo-900/30 rounded border border-indigo-600/30">
+                              <p className="text-xs text-indigo-300">
                                 Automated Discovery:{" "}
                                 {scanResults.reconnaissance.subdomains.length}{" "}
                                 subdomains found using advanced enumeration
@@ -1652,7 +720,7 @@ This report contains confidential information. Distribution restricted to author
                         scanResults.reconnaissance.dnsRecords.length > 0 && (
                           <div className="mb-6 p-4 bg-blue-900/20 border border-blue-700 rounded-lg">
                             <h4 className="text-lg font-medium mb-3 text-blue-400">
-                              ðŸ“‹ Comprehensive DNS Records Analysis
+                              📋 Comprehensive DNS Records Analysis
                             </h4>
                             <div className="space-y-3">
                               {[
@@ -1698,7 +766,7 @@ This report contains confidential information. Distribution restricted to author
                                                   {record.name}
                                                 </code>
                                                 <code className="text-blue-100 text-xs block mt-1">
-                                                  â†’ {record.value}
+                                                  → {record.value}
                                                 </code>
                                               </div>
                                             </div>
@@ -1716,7 +784,7 @@ This report contains confidential information. Distribution restricted to author
                             </div>
                             <div className="mt-4 p-3 bg-blue-900/30 rounded border border-blue-600/30">
                               <p className="text-xs text-blue-300">
-                                ðŸ”¬ Deep DNS Analysis:{" "}
+                                🔬 Deep DNS Analysis:{" "}
                                 {scanResults.reconnaissance.dnsRecords.length}{" "}
                                 DNS records extracted with advanced techniques
                               </p>
@@ -1732,16 +800,16 @@ This report contains confidential information. Distribution restricted to author
                         <div className="space-y-3">
                           {scanResults.reconnaissance.openPorts && scanResults.reconnaissance.openPorts.length > 0 ? (
                             scanResults.reconnaissance.openPorts.slice(0, 5).map((port: number, idx: number) => (
-                              <div key={idx} className={`p-3 bg-slate-800 rounded border-l-4 ${port === 80 || port === 443 ? "border-blue-500" : port === 22 ? "border-green-500" : "border-slate-600"}`}>
+                              <div key={idx} className={`p-3 bg-zinc-800 rounded border-l-4 ${port === 80 || port === 443 ? "border-blue-500" : port === 22 ? "border-indigo-500" : "border-zinc-600"}`}>
                                 <div className="flex justify-between items-center mb-2">
-                                  <span className={`${port === 80 || port === 443 ? "text-blue-400" : port === 22 ? "text-green-400" : "text-slate-400"} font-medium`}>
+                                  <span className={`${port === 80 || port === 443 ? "text-blue-400" : port === 22 ? "text-indigo-400" : "text-zinc-400"} font-medium`}>
                                     {scanResults.reconnaissance.services?.[idx] || "Unknown"} Service (Port {port})
                                   </span>
-                                  <span className="text-slate-400 text-xs">
+                                  <span className="text-zinc-400 text-xs">
                                     {scanResults.reconnaissance.serviceVersions?.[port] || "Detected"}
                                   </span>
                                 </div>
-                                <code className="text-slate-300 text-xs block bg-slate-900/50 p-2 rounded border border-slate-700/30">
+                                <code className="text-zinc-300 text-xs block bg-zinc-900/50 p-2 rounded border border-zinc-700/30">
                                   Banner: {scanResults.reconnaissance.serviceVersions?.[port] || "Banner identification complete"}
                                   <br />
                                   Phase: Service Fingerprinting (NMAP Heuristics)
@@ -1749,7 +817,7 @@ This report contains confidential information. Distribution restricted to author
                               </div>
                             ))
                           ) : (
-                            <div className="p-4 bg-slate-800/50 rounded border border-dashed border-slate-700 text-center text-slate-500">
+                            <div className="p-4 bg-zinc-800/50 rounded border border-dashed border-zinc-700 text-center text-zinc-500">
                               No service banners identified.
                             </div>
                           )}
@@ -1769,161 +837,146 @@ This report contains confidential information. Distribution restricted to author
 
                 <TabsContent value="owasp">
                   {scanResults && hasPerformedScan ? (
-                    <div className="p-4 bg-gray-800 rounded-lg">
-                      <div className="flex justify-between items-center mb-4">
-                        <h3 className="text-xl font-semibold text-blue-400">
-                          OWASP Top 10 2021 Compliance Assessment
-                        </h3>
-                        <div className="text-right">
-                          <p className="text-sm text-gray-400">
+                    <div className="p-4 bg-[#0a0a0f] border border-gray-800 rounded-xl shadow-lg">
+                      <div className="flex justify-between items-center mb-6 border-b border-gray-800 pb-4">
+                        <div className="flex items-center gap-3">
+                          <Shield className="h-6 w-6 text-blue-500" />
+                          <h3 className="text-xl font-bold text-gray-100">
+                            OWASP Top 10 2021 Compliance Assessment
+                          </h3>
+                        </div>
+                        <div className="text-right flex items-center gap-4 bg-gray-900 px-4 py-2 rounded-lg border border-gray-800">
+                          <p className="text-sm font-medium text-gray-400 uppercase tracking-wider">
                             Overall Compliance
                           </p>
-                          <p className="text-2xl font-bold text-emerald-400">
-                            {scanResults.owaspCompliance
-                              ?.compliancePercentage || 0}
-                            %
+                          <p className="text-3xl font-black text-indigo-400 drop-shadow-[0_0_8px_rgba(52,211,153,0.4)]">
+                            {scanResults.owaspCompliance?.compliancePercentage || 0}%
                           </p>
                         </div>
                       </div>
-
-                      <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
-                        <Card className="bg-gray-900 border-gray-700">
-                          <CardContent className="p-4">
+                      <div className="grid grid-cols-1 md:grid-cols-3 gap-5 mb-8">
+                        <Card className="bg-gradient-to-br from-gray-900 to-[#0a0a0f] border-gray-800 shadow-md">
+                          <CardContent className="p-5">
                             <div className="flex items-center justify-between">
                               <div>
-                                <h4 className="text-sm font-medium text-gray-400">
-                                  Compliant
+                                <h4 className="text-xs font-bold uppercase tracking-widest text-gray-500 mb-1">
+                                  Secure Categories
                                 </h4>
-                                <p className="text-3xl font-bold text-emerald-500">
+                                <p className="text-4xl font-black text-indigo-500">
                                   {scanResults.owaspCompliance?.compliant || 0}
                                 </p>
                               </div>
-                              <CheckCircle className="h-8 w-8 text-emerald-500" />
+                              <div className="p-3 bg-indigo-500/10 rounded-full">
+                                <CheckCircle className="h-8 w-8 text-indigo-500" />
+                              </div>
                             </div>
                           </CardContent>
                         </Card>
-                        <Card className="bg-gray-900 border-gray-700">
-                          <CardContent className="p-4">
+                        <Card className="bg-gradient-to-br from-gray-900 to-[#0a0a0f] border-gray-800 shadow-md">
+                          <CardContent className="p-5">
                             <div className="flex items-center justify-between">
                               <div>
-                                <h4 className="text-sm font-medium text-gray-400">
-                                  Non-Compliant
+                                <h4 className="text-xs font-bold uppercase tracking-widest text-gray-500 mb-1">
+                                  Vulnerable Categories
                                 </h4>
-                                <p className="text-3xl font-bold text-red-500">
-                                  {scanResults.owaspCompliance?.nonCompliant ||
-                                    0}
+                                <p className="text-4xl font-black text-red-500 drop-shadow-[0_0_5px_rgba(239,68,68,0.4)]">
+                                  {scanResults.owaspCompliance?.nonCompliant || 0}
                                 </p>
                               </div>
-                              <AlertTriangle className="h-8 w-8 text-red-500" />
+                              <div className="p-3 bg-red-500/10 rounded-full">
+                                <AlertTriangle className="h-8 w-8 text-red-500" />
+                              </div>
                             </div>
                           </CardContent>
                         </Card>
-                        <Card className="bg-gray-900 border-gray-700">
-                          <CardContent className="p-4">
+                        <Card className="bg-gradient-to-br from-gray-900 to-[#0a0a0f] border-gray-800 shadow-md">
+                          <CardContent className="p-5">
                             <div className="flex items-center justify-between">
                               <div>
-                                <h4 className="text-sm font-medium text-gray-400">
-                                  Risk Score
+                                <h4 className="text-xs font-bold uppercase tracking-widest text-gray-500 mb-1">
+                                  Cumulative Risk Score
                                 </h4>
-                                <p className="text-3xl font-bold text-amber-500">
-                                  {scanResults.owaspCompliance?.riskScore || 0}
-                                </p>
-                                <p className="text-xs text-gray-500 mt-1">
-                                  /{" "}
-                                  {scanResults.owaspCompliance?.maxRiskScore ||
-                                    10}
-                                </p>
+                                <div className="flex items-baseline gap-1">
+                                  <p className="text-4xl font-black text-amber-500">
+                                    {scanResults.owaspCompliance?.riskScore || 0}
+                                  </p>
+                                  <p className="text-sm font-medium text-gray-500">
+                                    / {scanResults.owaspCompliance?.maxRiskScore || 10}
+                                  </p>
+                                </div>
                               </div>
-                              <Shield className="h-8 w-8 text-amber-500" />
+                              <div className="p-3 bg-amber-500/10 rounded-full">
+                                <Shield className="h-8 w-8 text-amber-500" />
+                              </div>
                             </div>
                           </CardContent>
                         </Card>
                       </div>
-
-                      <h4 className="text-lg font-medium mb-3 text-gray-300">
-                        Professional OWASP Top 10 2021 Assessment
+                      <h4 className="text-base font-bold uppercase tracking-widest mb-4 text-gray-400">
+                        Category Assessment Breakdown
                       </h4>
-                      <div className="overflow-x-auto">
+                      <div className="overflow-hidden rounded-lg border border-gray-800 bg-[#130A24]">
                         <table className="w-full text-sm">
                           <thead>
-                            <tr className="bg-gray-800 text-gray-400">
-                              <th className="px-4 py-2 text-left">
+                            <tr className="bg-[#1e293b] text-gray-300">
+                              <th className="px-5 py-3 text-left font-semibold uppercase tracking-wider text-xs">
                                 OWASP Category
                               </th>
-                              <th className="px-4 py-2 text-left">
+                              <th className="px-5 py-3 text-left font-semibold uppercase tracking-wider text-xs w-48">
                                 Compliance Status
                               </th>
-                              <th className="px-4 py-2 text-left">
-                                Risk Impact
+                              <th className="px-5 py-3 text-left font-semibold uppercase tracking-wider text-xs w-48">
+                                Findings Impact
                               </th>
                             </tr>
                           </thead>
-                          <tbody>
-                            {scanResults.owaspCompliance?.findings &&
-                            scanResults.owaspCompliance.findings.length > 0 ? (
-                              scanResults.owaspCompliance.findings.map(
-                                (finding: any, index: number) => (
-                                  <tr
-                                    key={index}
-                                    className="border-t border-gray-800 hover:bg-gray-750"
-                                  >
-                                    <td className="px-4 py-3">
-                                      <div className="flex flex-col">
-                                        <span className="font-medium text-gray-200">
-                                          {finding.category}
-                                        </span>
-                                        {finding.criticality && (
-                                          <span
-                                            className={`text-xs mt-1 ${
-                                              finding.criticality === "critical"
-                                                ? "text-red-400"
-                                                : finding.criticality === "high"
-                                                  ? "text-orange-400"
-                                                  : finding.criticality ===
-                                                      "medium"
-                                                    ? "text-yellow-400"
-                                                    : "text-blue-400"
-                                            }`}
-                                          >
-                                            {finding.criticality.toUpperCase()}{" "}
-                                            PRIORITY
-                                          </span>
-                                        )}
-                                      </div>
-                                    </td>
-                                    <td className="px-4 py-3">
-                                      <span
-                                        className={`px-3 py-1 rounded-full text-xs font-medium ${
-                                          finding.status === "Compliant"
-                                            ? "bg-emerald-900/50 text-emerald-300 border border-emerald-700"
-                                            : "bg-red-900/50 text-red-300 border border-red-700"
-                                        }`}
-                                      >
-                                        {finding.status}
+                          <tbody className="divide-y divide-gray-800">
+                            {scanResults.owaspCompliance?.findings && scanResults.owaspCompliance.findings.length > 0 ? (
+                              scanResults.owaspCompliance.findings.map((finding: any, index: number) => (
+                                <tr key={index} className="hover:bg-[#1a2333] transition-colors">
+                                  <td className="px-5 py-4">
+                                    <div className="flex flex-col">
+                                      <span className="font-semibold text-gray-200">
+                                        {finding.category}
                                       </span>
-                                    </td>
-                                    <td className="px-4 py-3">
-                                      <div className="flex items-center">
-                                        {finding.status === "Non-Compliant" ? (
-                                          <div className="flex items-center text-red-400">
-                                            <AlertTriangle className="h-4 w-4 mr-1" />
-                                            <span className="text-xs">
-                                              Security Risk
-                                            </span>
-                                          </div>
-                                        ) : (
-                                          <div className="flex items-center text-emerald-400">
-                                            <CheckCircle className="h-4 w-4 mr-1" />
-                                            <span className="text-xs">
-                                              Secure
-                                            </span>
-                                          </div>
-                                        )}
-                                      </div>
-                                    </td>
-                                  </tr>
-                                ),
-                              )
+                                      {finding.status !== "pass" && finding.findings > 0 && (
+                                        <span className="text-xs mt-1 text-gray-400">
+                                          {finding.findings} finding(s) detected.
+                                        </span>
+                                      )}
+                                    </div>
+                                  </td>
+                                  <td className="px-5 py-4">
+                                    <span className={`inline-flex items-center px-2.5 py-1 rounded-md text-xs font-bold uppercase tracking-wider border ${
+                                      finding.status === "pass" ? "bg-indigo-500/10 text-indigo-400 border-indigo-500/20" :
+                                      finding.status === "partial" ? "bg-amber-500/10 text-amber-400 border-amber-500/20" :
+                                      "bg-red-500/10 text-red-400 border-red-500/20"
+                                    }`}>
+                                      {finding.status === "pass" ? "Compliant" : finding.status === "partial" ? "Partial" : "Non-Compliant"}
+                                    </span>
+                                  </td>
+                                  <td className="px-5 py-4">
+                                    <div className="flex items-center">
+                                      {finding.status === "fail" ? (
+                                        <div className="flex items-center text-red-400 font-medium">
+                                          <AlertTriangle className="h-4 w-4 mr-1.5" />
+                                          <span>Critical Risk</span>
+                                        </div>
+                                      ) : finding.status === "partial" ? (
+                                        <div className="flex items-center text-amber-400 font-medium">
+                                          <AlertTriangle className="h-4 w-4 mr-1.5" />
+                                          <span>Medium Risk</span>
+                                        </div>
+                                      ) : (
+                                        <div className="flex items-center text-indigo-400 font-medium">
+                                          <CheckCircle className="h-4 w-4 mr-1.5" />
+                                          <span>Secure</span>
+                                        </div>
+                                      )}
+                                    </div>
+                                  </td>
+                                </tr>
+                              ))
                             ) : (
                               <tr>
                                 <td
