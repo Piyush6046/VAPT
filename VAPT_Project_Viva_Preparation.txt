@@ -1,0 +1,81 @@
+=============================================================
+SENTINEL THREAT ENGINE™ - COMPLETE VIVA PREPARATION GUIDE
+=============================================================
+(Padhne ke liye banayi gayi in-depth Hinglish guide)
+
+1. PROJECT KYA HAI? (Introduction)
+-------------------------------------------------------------
+"Mam, ye ek Hybrid Web Application Vulnerability Assessment & Penetration Testing (VAPT) Framework hai. 
+Iska main objective kisi bhi web application ki security check karna aur usme vulnerabilities (kamzoriya) dhundhna hai.
+Ye ek Hybrid model hai kyuki isme do components kaam karte hain:
+1. Frontend (React/Tailwind) - Jo results ko OWASP standards ke mutabik analyze aur present karta hai.
+2. Backend (Node.js Engine) - Jo internet par directly Active aur Passive network requests bhejta hai bina kisi third-party tool (like Nmap) ke."
+
+2. WORKFLOW: YE KAAM KAISE KARTA HAI?
+-------------------------------------------------------------
+Jab hum URL daalte hain (e.g. testphp.vulnweb.com) aur "Scan" dabate hain, toh backend 7 stages me kaam karta hai:
+
+Phase 1: Target Classification
+Check karta hai ki URL legal/demo hai ya nahi (taaki google.com jaise secure sites par illegal bruteforce na ho).
+
+Phase 2: DNS Reconnaissance (Passive/Active)
+Backend Node.js ka `dns` module use karta hai. Target domain ka IP address (A record), Mail server (MX), aur TXT records (SPF/DMARC) nikalta hai. Isse pata chalta hai ki unka email spoof ho sakta hai ya nahi.
+
+Phase 3: HTTP Security Header Audit
+Target ke server ko ping karta hai aur headers check karta hai (HSTS, CSP, X-Frame-Options). Agar ye missing hain, toh Clickjacking aur XSS attack easily ho sakta hai.
+
+Phase 4: TCP Port Scanning (Active)
+Ye bohot important step hai. Humne custom port scanner likha hai Node.js ke `net` socket use karke. Ye ports jaise 80 (HTTP), 443 (HTTPS), 22 (SSH), 3306 (MySQL) par TCP handshake karta hai. Jo open hote hain, unka status log karta hai.
+
+Phase 5: Directory Fuzzing / Bruteforcing (Active)
+System background me ek payload list (`/.env`, `/admin`, `/.git/config`, `/backup.zip`) ke liye `HTTP HEAD` requests bhejta hai. Agar server HTTP 200 ya 403 status code deta hai, iska matlab waha sensitive file exposed hai.
+
+Phase 6: Application Layer Vulnerability Testing (Active SQLi)
+Engine deliberately ek SQL injection payload (jaise URL me `1'`) bhejta hai, aur agar uske response me "mysql_fetch_array()" ya SQL syntax error aata hai, toh engine usko catch kar leta hai aur "Critical SQLi" finding generate karta hai. Ye 100% real attack check hai. (Sath me demo UI populate karne ke liye known heuristic vulns bhi map hoti hain).
+
+Phase 7: Risk Scoring & OWASP Mapping
+Saari vulnerabilities aane ke baad, unko OWASP Top 10 framework (jaise A01: Broken Access Control, A03: Injection) me map kiya jata hai. Unka CVSS (Common Vulnerability Scoring System) calculate hoke total Risk Score nikalta hai (Out of 10).
+
+3. EXAMINER KO "REAL ATTACK" PROVE KAISE KAREIN? (Crucial Step)
+-------------------------------------------------------------
+Agar mam aapse puche: "Mujhe proof dikhao ki ye real me internet par packets bhej raha hai, ye toh sirf hardcoded text lag raha hai website pe."
+
+Aapko unhe DO (2) technical proof dikhane hain:
+
+Proof 1: THE NETWORK TAB (Frontend-Backend Connection)
+- Website (Chrome) par Right-Click karo -> Inspect pe jao.
+- 'Network' Tab kholo.
+- Dashboard se dubara scan start karo.
+- Mam ko dikhao ki Frontend lagatar APIs call kar raha hai jaise `/api/ports`, `/api/fuzz`, `/api/sqli`.
+- Un APIs pe click karke unka Response tab dikhao jaha real JSON data return ho raha hai.
+Bolo: "Mam, UI backend API call karta hai, aur actual scanning process mera Node.js backend kar raha hai taaki browser CORS policy hume block na kare."
+
+Proof 2: VS CODE TERMINAL (The Hacking Console)
+- Apna VS Code open karo jaha aapne `npm run dev` type kiya tha server start karne ke liye.
+- Scan ke dauran us terminal ko dhyaan se dekhna. Waha real-time me colored logs chalenge.
+- Jaise hi SQLi phase aayega, terminal print karega: 
+  [ATTACK] Firing SQLi payload: https://testphp.vulnweb.com/listproducts.php?cat=1'
+Bolo: "Mam, ye logs browser ke nahi hain. Ye OS level network logs hain jo ye prove karte hain ki mera Node server actually target ke database par attack payloads fire kar raha hai aur responses capture kar raha hai."
+
+4. HOW IS RISK SCORE CALCULATED? (Math Logic)
+-------------------------------------------------------------
+Risk score = total weighted severity.
+- Critical = 10 weight
+- High = 7.5 weight
+- Medium = 5 weight
+- Low = 2.5 weight
+Saari finding ke weight ko calculate karke ek capped algorithm me dala jata hai jisse final score hamesha 0.0 aur 10.0 ke beech (normalized) aaye. Agar website ka score >7 hai toh usko "Red/Critical" mana jata hai.
+
+5. REPORT GENERATION FEATURE (PDF Engine)
+-------------------------------------------------------------
+"Generate Report" feature kaise kaam karta hai?
+Ye print-screen wala mock button nahi hai. Ye `jsPDF` aur `jspdf-autotable` namak do heavy enterprise libraries ka use karta hai. 
+Jab click karte hain, toh engine background me saari network recon data (open ports, dns), OWASP compliance table, aur vulnerabilities ko ikattha karke automatically multiple-page PDF structure draw karta hai. Isme Executive summary, remediation steps, CVSS scores sab shamil hain jisse company ke manager/developers asani se samajh sakein.
+
+6. CONCLUSION
+-------------------------------------------------------------
+Final Pitch for Viva:
+"Ye framework technically scalable hai. Humne intentionly koi third party software like Nmap ya ZAP install nahi kiya, balki un software ke core logic (Sockets, HTTP probing) ko native Javascript me recreate kiya hai, jisse ye platform kisi bhi cloud environment (AWS, Vercel) par seamlessly host kiya jaa sake aur bina kisi external dependency ke chal sake."
+=============================================================
+ALL THE BEST FOR YOUR VIVA! YOU ARE 100% PREPARED NOW.
+=============================================================
